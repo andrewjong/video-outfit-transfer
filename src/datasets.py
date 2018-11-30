@@ -3,6 +3,8 @@ import random
 from typing import Set, List, Tuple
 
 import numpy as np
+import torch
+from torchvision.transforms import ToTensor
 from PIL import Image
 from torch.utils.data import Dataset
 
@@ -28,12 +30,14 @@ class WarpDataset(Dataset):
             and perform data augmention on each channel of that frame
 
 
-        :param clothing_seg_dir:
-        :param body_seg_dir:
-        :param min_offset:
+        :param clothing_seg_dir: path to directory containing clothing segmentation
+        .npy files
+        :param body_seg_dir: path to directory containing body segmentation image files
+        :param min_offset: minimum offset to select a random other clothing
+        segmentation (default: 50)
         :param random_seed: seed for getting a random clothing seg image
         :param transform: transform for the random drawn clothing segmentation image.
-        Note, the transform must be able to operate on a 19-channel tensor
+        Note, the transform must be able to operate on a HxWx19-channel tensor
         """
         self.clothing_seg_dir = clothing_seg_dir
         # list of file names, mapping to npy arrays
@@ -78,8 +82,10 @@ class WarpDataset(Dataset):
         if body_seg_fname in self.body_seg_files_set:
             return body_seg_fname
         else:
-            raise ValueError("No corresponding body segmentation image found. "
-                             "Could not find: " + body_seg_fname)
+            raise ValueError(
+                "No corresponding body segmentation image found. "
+                "Could not find: " + body_seg_fname
+            )
 
     def _get_random_clothing_seg(self, index):
         """
@@ -91,7 +97,7 @@ class WarpDataset(Dataset):
         :return:
         """
         min_thresh = index - self.min_offset
-        max_thresh = index + self.min_offset + 1 # + 1 so that
+        max_thresh = index + self.min_offset + 1  # + 1 so that
         # make sure we're not out-of-bounds
         if min_thresh < 0:
             min_thresh = 0
@@ -99,12 +105,13 @@ class WarpDataset(Dataset):
             max_thresh = len(self.clothing_seg_files) - 1
 
         # our valid set
-        valid_choices = self.clothing_seg_files[:min_thresh] + \
-                        self.clothing_seg_files[max_thresh:]
+        valid_choices = (
+            self.clothing_seg_files[:min_thresh] + self.clothing_seg_files[max_thresh:]
+        )
 
         return random.choice(valid_choices)
 
-    def __getitem__(self, index)-> Tuple:
+    def __getitem__(self, index) -> Tuple:
         """
         TODO: transform all outputs to Tensors
 
@@ -114,14 +121,26 @@ class WarpDataset(Dataset):
         # Load as np arrays
         target_cs_file = self.clothing_seg_files[index]
         target_cs_ndarray = np.load(os.path.join(self.clothing_seg_dir, target_cs_file))
+        # the files are shaped (1, w, h, c). we shouldn't have that extra dimension in front
+        target_cs_ndarray = np.squeeze(target_cs_ndarray, 0)
+
         other_cs_file = self._get_random_clothing_seg(index)
         other_cs_ndarray = np.load(os.path.join(self.clothing_seg_dir, other_cs_file))
+        other_cs_ndarray = np.squeeze(other_cs_ndarray, 0)
+        # apply the transformation if desired
+        if self.transform:
+            other_cs_ndarray = self.transform(other_cs_ndarray)
 
         # the body segmentation that corresponds to the target
         body_seg_file = self._get_matching_body_seg_file(target_cs_file)
         body_seg_img = Image.open(os.path.join(self.body_seg_dir, body_seg_file))
 
-        return target_cs_ndarray, other_cs_ndarray, body_seg_img
+        to_tensor = ToTensor()
+        return (
+            to_tensor(target_cs_ndarray),
+            to_tensor(other_cs_ndarray),
+            to_tensor(body_seg_img),
+        )
 
 
 class TextureDataset(Dataset):
