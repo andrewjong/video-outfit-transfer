@@ -9,6 +9,7 @@ class WarpModule(nn.Module):
     The warping module takes a body segmentation to represent the "pose",
     and an input clothing segmentation to transform to match the pose.
     """
+
     def __init__(self, body_channels=3, cloth_channels=19, dropout=0.5):
         super(WarpModule, self).__init__()
 
@@ -26,11 +27,16 @@ class WarpModule(nn.Module):
         self.cloth_down1 = UNetDown(cloth_channels, 64, normalize=False)
         self.cloth_down2 = UNetDown(64, 128)
         self.cloth_down3 = UNetDown(128, 256)
-        self.cloth_down4 = UNetDown(256, 512)
-        self.cloth_down5 = UNetDown(512, 1024, dropout=dropout)
-        self.cloth_down6 = UNetDown(1024, 1024, dropout=dropout)
-        # input down6 (1024) & cat down5 (1024)
-        self.cloth_up1 = UNetUp(2 * 1024, 512)
+        self.cloth_down4 = UNetDown(256, 512, dropout=dropout)
+        self.cloth_down5 = UNetDown(512, 512, dropout=dropout)
+        self.cloth_down6 = UNetDown(512, 512, dropout=dropout)
+        self.cloth_down7 = UNetDown(512, 512, dropout=dropout)
+        self.cloth_down8 = UNetDown(512, 512, normalize=False, dropout=dropout)
+        self.cloth_up1 = UNetUp(512, 512, dropout=dropout)
+        self.cloth_up2 = UNetUp(1024, 512, dropout=dropout)
+        self.cloth_up3 = UNetUp(1024, 512, dropout=dropout)
+        self.cloth_up4 = UNetUp(1024, 512, dropout=dropout)
+        self.cloth_up5 = UNetUp(1024, 256, dropout=dropout)
 
         ######################
         #      Resblocks     #  (middle of SwapNet diagram)
@@ -74,13 +80,16 @@ class WarpModule(nn.Module):
         # )
 
     def forward(self, body, cloth):
+        print("body shape:", body.shape)
+        print("cloth shape:", cloth.shape)
+        print("shapes should match except in the channel dim")
         ######################
         # Body pre-encoding  #
         ######################
         body_d1 = self.body_down1(body)
-        body_d2 = self.body_down1(body_d1)
-        body_d3 = self.body_down1(body_d2)
-        body_d4 = self.body_down1(body_d3)
+        body_d2 = self.body_down2(body_d1)
+        body_d3 = self.body_down3(body_d2)
+        body_d4 = self.body_down4(body_d3)
         print("body_d4 shape, should be 512 channel:", body_d4.shape)
 
         ######################
@@ -92,15 +101,20 @@ class WarpModule(nn.Module):
         cloth_d4 = self.cloth_down4(cloth_d3)
         cloth_d5 = self.cloth_down5(cloth_d4)
         cloth_d6 = self.cloth_down6(cloth_d5)
-        # cloth_d6: 1024, cloth_d5: 1024
-        cloth_u1 = self.cloth_up1(cloth_d6, cloth_d5)
-        print("cloth_u1 shape, should be 512 channel:", cloth_u1.shape)
+        cloth_d7 = self.cloth_down7(cloth_d6)
+        cloth_d8 = self.cloth_down8(cloth_d7)
+        cloth_u1 = self.cloth_up1(cloth_d8, cloth_d7)
+        cloth_u2 = self.cloth_up2(cloth_u1, cloth_d6)
+        cloth_u3 = self.cloth_up3(cloth_u2, cloth_d5)
+        cloth_u4 = self.cloth_up4(cloth_u3, cloth_d4)
+        cloth_u5 = self.cloth_up5(cloth_u4, cloth_d3)
+        print("cloth_u5 shape, should be 512 channel:", cloth_u5.shape)
 
         #######################
         # Combine & Resblocks #
         #######################
         # cat on the channel dimension? should be same HxW
-        body_and_cloth = torch.cat(body_d4, cloth_u1, dim=0)
+        body_and_cloth = torch.cat((body_d4, cloth_u5), dim=1)
         encoded = self.resblocks(body_and_cloth)
 
         ######################
@@ -108,8 +122,8 @@ class WarpModule(nn.Module):
         ######################
         dual_u1 = self.dual_up1(encoded, body_d4, cloth_d4)
         dual_u2 = self.dual_up2(dual_u1, body_d3, cloth_d3)
-        dual_u3 = self.dual_up2(dual_u2, body_d2, cloth_d2)
-        dual_u4 = self.dual_up2(dual_u3, body_d1, cloth_d1)
+        dual_u3 = self.dual_up3(dual_u2, body_d2, cloth_d2)
+        dual_u4 = self.dual_up4(dual_u3, body_d1, cloth_d1)
 
         return dual_u4
 
