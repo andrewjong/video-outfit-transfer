@@ -51,8 +51,8 @@ class UNetUp(nn.Module):
 
     def forward(self, x, skip_input):
         x = self.model(x)
-        x = torch.cat((x, skip_input), 1)
-
+        if skip_input is not None:
+            x = torch.cat((x, skip_input), 1)
         return x
 
 
@@ -60,12 +60,14 @@ class DualUNetUp(UNetUp):
     """
     My guess of how dual u-net works, according to the paper
     "Multi-View Image Generation from a Single-View"
+    Added by AJ.
     """
     def __init__(self, in_size, out_size, dropout=0.0):
         super(DualUNetUp, self).__init__(in_size, out_size, dropout)
 
     def forward(self, x, skip_input_1, skip_input_2):
         x = self.model(x)
+        # print("DualUNetUp before cat:", x.shape)
         x = torch.cat((x, skip_input_1, skip_input_2), 1)
 
         return x
@@ -101,10 +103,12 @@ class GeneratorUNet(nn.Module):
 
     def forward(self, x):
         # U-Net generator with skip connections from encoder to decoder
+        print("x shape:", x.shape)
         d1 = self.down1(x)
         d2 = self.down2(d1)
         d3 = self.down3(d2)
         d4 = self.down4(d3)
+        print("d4 shape:", d4.shape)
         d5 = self.down5(d4)
         d6 = self.down6(d5)
         d7 = self.down7(d6)
@@ -113,7 +117,9 @@ class GeneratorUNet(nn.Module):
         u2 = self.up2(u1, d6)
         u3 = self.up3(u2, d5)
         u4 = self.up4(u3, d4)
+        print("u4 shape:", u4.shape)
         u5 = self.up5(u4, d3)
+        print("u5 shape:", u5.shape)
         u6 = self.up6(u5, d2)
         u7 = self.up7(u6, d1)
 
