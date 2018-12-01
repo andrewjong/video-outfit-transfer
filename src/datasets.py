@@ -4,9 +4,27 @@ from typing import Set, List, Tuple
 
 import numpy as np
 import torch
-from torchvision.transforms import ToTensor
+from torch import Tensor
 from PIL import Image
 from torch.utils.data import Dataset
+
+
+# TODO: Per channel random transforms.
+# def per_channel_affine(inp: np.ndarray):
+#     """
+#     :param inp: C x H x W tensor
+#     :return: Tensor with
+#     """
+#     np.split(inp, inp.shape[0], axis=0)
+#
+#     pass
+#
+# ROTATE_ANGLE = 15
+#
+# the_transforms = transforms.Compose([
+#     transforms.Lambda(lambda inp: per_channel_affine(inp)),
+# ] )
+
 
 
 class WarpDataset(Dataset):
@@ -26,15 +44,16 @@ class WarpDataset(Dataset):
         Strategy:
             Get a target clothing segmentation (.npy). Get the matching body
             segmentation (.png)
-            Choose a random starting clothing segmentation at a different frame (.npy),
-            and perform data augmention on each channel of that frame
+            Choose a random starting clothing segmentation from a different frame
+            (.npy), and perform data augmention on each channel of that frame
 
 
         :param clothing_seg_dir: path to directory containing clothing segmentation
         .npy files
         :param body_seg_dir: path to directory containing body segmentation image files
         :param min_offset: minimum offset to select a random other clothing
-        segmentation (default: 50)
+        segmentation. (default: 50; unless min_offset < number of clothing files,
+        then 0)
         :param random_seed: seed for getting a random clothing seg image
         :param transform: transform for the random drawn clothing segmentation image.
         Note, the transform must be able to operate on a HxWx19-channel tensor
@@ -52,7 +71,7 @@ class WarpDataset(Dataset):
         first_bs = next(iter(self.body_seg_files_set))
         self.body_seg_ext = os.path.splitext(first_bs)[-1]
 
-        self.min_offset = min_offset
+        self.min_offset = min_offset if len(self.clothing_seg_files) < min_offset else 0
         self.random_seed = random_seed
         self.transform = transform
 
@@ -111,36 +130,43 @@ class WarpDataset(Dataset):
 
         return random.choice(valid_choices)
 
-    def __getitem__(self, index) -> Tuple:
+    def __getitem__(self, index) -> Tuple[Tensor, Tensor, Tensor]:
         """
-        TODO: transform all outputs to Tensors
 
         :param index:
-        :return: ndarray, ndarray, PIL.Image
+        :return: body segmentation, input clothing segmentation, target clothing
+        segmentation
         """
         # Load as np arrays
         target_cs_file = self.clothing_seg_files[index]
         target_cs_ndarray = np.load(os.path.join(self.clothing_seg_dir, target_cs_file))
-        # the files are shaped (1, w, h, c). we shouldn't have that extra dimension in front
+        # files are shaped (1, w, h, c). shouldn't have that extra dimension in front
         target_cs_ndarray = np.squeeze(target_cs_ndarray, 0)
+        # move the channel axis up, as PyTorch likes CxHxW format
+        target_cs_ndarray = np.moveaxis(target_cs_ndarray, -1, 0)
 
-        other_cs_file = self._get_random_clothing_seg(index)
-        other_cs_ndarray = np.load(os.path.join(self.clothing_seg_dir, other_cs_file))
-        other_cs_ndarray = np.squeeze(other_cs_ndarray, 0)
+        input_cs_file = self._get_random_clothing_seg(index)
+        input_cs_ndarray = np.load(os.path.join(self.clothing_seg_dir, input_cs_file))
+        # files are shaped (1, w, h, c). shouldn't have that extra dimension in front
+        input_cs_ndarray = np.squeeze(input_cs_ndarray, 0)
+        # move the channel axis up, as PyTorch likes CxHxW format
+        input_cs_ndarray = np.moveaxis(input_cs_ndarray, -1, 0)
+
         # apply the transformation if desired
         if self.transform:
-            other_cs_ndarray = self.transform(other_cs_ndarray)
+            input_cs_ndarray = self.transform(input_cs_ndarray)
 
         # the body segmentation that corresponds to the target
         body_seg_file = self._get_matching_body_seg_file(target_cs_file)
         body_seg_img = Image.open(os.path.join(self.body_seg_dir, body_seg_file))
+        body_s = np.array(body_seg_img)
+        body_s = np.moveaxis(body_s, -1, 0)
 
-        to_tensor = ToTensor()
-        return (
-            to_tensor(target_cs_ndarray),
-            to_tensor(other_cs_ndarray),
-            to_tensor(body_seg_img),
-        )
+        # convert to PT tensors and return
+        body_s = torch.from_numpy(body_s)
+        input_cs = torch.from__numpy(input_cs_ndarray)
+        target_cs = torch.from_numpy(target_cs_ndarray)
+        return body_s, input_cs, target_cs
 
 
 class TextureDataset(Dataset):
