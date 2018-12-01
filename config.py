@@ -2,7 +2,6 @@ ANDREW_CLOTHING_SEG = (
     "/run/media/espina/DATA/outfit-transfer/andrew_clothing_seg/probability_maps"
 )
 
-
 ANDREW_BODY_SEG = "/run/media/espina/DATA/outfit-transfer/andrew_body_seg"
 ANDREW_BODY_SEG_MEAN = [0.02548507578066196, 0.04090483438072337, 0.034430569821185406]
 ANDREW_BODY_SEG_STD = [0.11019536986470552, 0.137329593577946, 0.12687526036868005]
