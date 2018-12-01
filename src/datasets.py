@@ -32,7 +32,8 @@ class WarpDataset(Dataset):
         self,
         body_seg_dir: str,
         clothing_seg_dir: str,
-        min_offset: int = 50,
+        crop_bounds: Tuple[Tuple[int, int], Tuple[int, int]] = None,
+        min_offset: int = 100,
         random_seed=None,
         transform=None,
         body_means=None,
@@ -64,7 +65,11 @@ class WarpDataset(Dataset):
         # list of file names, mapping to npy arrays
         self.clothing_seg_files: List[str] = os.listdir(clothing_seg_dir)
 
+        self.crop_bounds = crop_bounds
+
         self.min_offset = min_offset if len(self.clothing_seg_files) < min_offset else 0
+        if random_seed:
+            random.seed(random_seed)
         self.random_seed = random_seed
         self.transform = transform
 
@@ -171,7 +176,17 @@ class WarpDataset(Dataset):
         body_s = self.body_transforms(body_seg_img)
         input_cs = torch.FloatTensor(input_cs_ndarray)
         target_cs = torch.FloatTensor(target_cs_ndarray)
+
+        if self.crop_bounds is not None:
+            body_s = self._crop(body_s)
+            input_cs = self._crop(input_cs)
+            target_cs = self._crop(target_cs)
+
         return body_s, input_cs, target_cs
+
+    def _crop(self, tensor):
+        (h_min, hmax), (w_min, w_max) = self.crop_bounds
+        return tensor[:, :, h_min:hmax, w_min:w_max]
 
 
 class TextureDataset(Dataset):
