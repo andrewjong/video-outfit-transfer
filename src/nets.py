@@ -79,19 +79,19 @@ class GeneratorUNet(nn.Module):
         self.down2 = UNetDown(64, 128)
         self.down3 = UNetDown(128, 256)
         self.down4 = UNetDown(256, 512, dropout=0.5)
+
         self.down5 = UNetDown(512, 512, dropout=0.5)
         self.down6 = UNetDown(512, 512, dropout=0.5)
         self.down7 = UNetDown(512, 512, dropout=0.5)
         self.down8 = UNetDown(512, 512, normalize=False, dropout=0.5)
-
         self.up1 = UNetUp(512, 512, dropout=0.5)
         self.up2 = UNetUp(1024, 512, dropout=0.5)
         self.up3 = UNetUp(1024, 512, dropout=0.5)
         self.up4 = UNetUp(1024, 512, dropout=0.5)
+
         self.up5 = UNetUp(1024, 256)
         self.up6 = UNetUp(512, 128)
         self.up7 = UNetUp(256, 64)
-
         self.final = nn.Sequential(
             nn.Upsample(scale_factor=2),
             nn.ZeroPad2d((1, 0, 1, 0)),
@@ -153,12 +153,12 @@ class Discriminator(nn.Module):
 
 
 ##############################
-#           RESNET
+#           ResBlock
 ##############################
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, in_features):
+    def __init__(self, in_features, dropout=0.):
         super(ResidualBlock, self).__init__()
 
         conv_block = [
@@ -166,6 +166,7 @@ class ResidualBlock(nn.Module):
             nn.Conv2d(in_features, in_features, 3),
             nn.InstanceNorm2d(in_features),
             nn.ReLU(inplace=True),
+            nn.Dropout(dropout), # added by AJ
             nn.ReflectionPad2d(1),
             nn.Conv2d(in_features, in_features, 3),
             nn.InstanceNorm2d(in_features),
