@@ -40,7 +40,8 @@ parser.add_argument(
     "-d", "--dataset_name", default="", help="Name the dataset for output path"
 )
 parser.add_argument(
-    "-o", "--out_dir",
+    "-o",
+    "--out_dir",
     default=os.path.join("output", "warp_stage"),
     help="Output folder path",
 )
@@ -51,7 +52,7 @@ parser.add_argument(
 )
 parser.add_argument("--epoch", type=int, default=0, help="epoch to start training from")
 parser.add_argument(
-    "--n_epochs", type=int, default=200, help="number of epochs of training"
+    "--n_epochs", type=int, default=20, help="number of epochs of training"
 )
 parser.add_argument("--batch_size", type=int, default=4, help="size of the batches")
 parser.add_argument(
@@ -94,7 +95,7 @@ parser.add_argument(
     "--sample_interval",
     type=int,
     default=500,
-    help="interval between sampling of images from generators. --val_dir must be set for this argument to work!",
+    help="batch interval between sampling of images from generators. --val_dir must be set for this argument to work!",
 )
 parser.add_argument(
     "--val_dir",
@@ -103,8 +104,8 @@ parser.add_argument(
 parser.add_argument(
     "--checkpoint_interval",
     type=int,
-    default=10,
-    help="interval between model checkpoints",
+    default=1000,
+    help="batch interval between model checkpoints",
 )
 parser.add_argument(
     "--n_cpu",
@@ -144,7 +145,7 @@ with open(os.path.join(MODEL_DIR, "logs", "args.json"), "w") as f:
     json.dump(argparse_dict, f, indent=4)
 # Write progress header
 with open(os.path.join(MODEL_DIR, "logs", "train_log.csv"), "w") as f:
-    f.write("step,loss_D,loss_G,loss_pixel,loss_adversarial")
+    f.write("step,loss_D,loss_G,loss_pixel,loss_adversarial\n")
 
 
 ###############################
@@ -166,23 +167,24 @@ if cuda:
     criterion_GAN.cuda()
     criterion_pixelwise.cuda()
 
-# only load weights if not first epoch
+# only load weights if retraining
 if args.epoch != 0:
-    # Load pretrained models
-    generator.load_state_dict(
-        torch.load(
-            os.path.join(
-                args.save_dir, args.dataset_name, f"generator_{args.epoch}.pth"
-            )
-        )
-    )
-    discriminator.load_state_dict(
-        torch.load(
-            os.path.join(
-                args.save_dir, args.dataset_name, f"discriminator_{args.epoch}.pth"
-            )
-        )
-    )
+    pass
+    # # Load pretrained models
+    # generator.load_state_dict(
+    #     torch.load(
+    #         os.path.join(
+    #             args.save_dir, args.dataset_name, f"generator_{args.epoch}.pth"
+    #         )
+    #     )
+    # )
+    # discriminator.load_state_dict(
+    #     torch.load(
+    #         os.path.join(
+    #             args.save_dir, args.dataset_name, f"discriminator_{args.epoch}.pth"
+    #         )
+    #     )
+    # )
 else:  # if first epoch,
     # initialize weights
     generator.apply(weights_init_normal)
@@ -229,8 +231,7 @@ if args.val_dir:
     )
 
 
-os.makedirs(os.path.join("images", "warp_module", args.dataset_name), exist_ok=True) 
-def sample_images(batches_done):
+def sample_images(epoch, batches_done):
     """Saves a generated sample from the validation set"""
     bodys, inputs, targets = next(iter(val_dataloader))
     if cuda:
@@ -241,8 +242,8 @@ def sample_images(batches_done):
     img_sample = torch.cat((bodys.data, inputs.data, fakes.data, targets.data), -2)
     save_image(
         img_sample,
-        os.path.join("images", "warp_module", args.dataset_name, f"{batches_done}.png"),
-        nrow=5,
+        os.path.join(OUT_DIR, f"{epoch:02d}_{batches_done:05d}.png"),
+        nrow=args.batch_size,
         normalize=True,
     )
 
@@ -250,6 +251,19 @@ def sample_images(batches_done):
 ###############################
 # Training
 ###############################
+
+
+def save_models(epoch, batches_done):
+    # Save model checkpoints
+    torch.save(
+        generator.state_dict(),
+        os.path.join(MODEL_DIR, f"generator_{epoch:02d}_{batches_done:05d}.pth"),
+    )
+    torch.save(
+        discriminator.state_dict(),
+        os.path.join(MODEL_DIR, f"discriminator_{epoch:02d}_{batches_done:05d}.pth"),
+    )
+
 
 # Tensor type
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
@@ -317,7 +331,7 @@ for epoch in tqdm(
             + f"pixel: {loss_pixel.item():.3f}, adv: {loss_adv.item():.3f}]"
         )
 
-        # Save to file
+        # Save log to file
         batches_done = epoch * len(dataloader) + i
         with open(os.path.join(MODEL_DIR, "logs", "train_log.csv"), "a+") as f:
             f.write(
@@ -333,21 +347,31 @@ for epoch in tqdm(
             )
             f.write("\n")
 
+        # ------------------------------
+        #  Sample images and save model
+        # ------------------------------
         # If at sample interval save image
         if args.val_dir and batches_done % args.sample_interval == 0:
-            sample_images(batches_done)
+            sample_images(epoch, batches_done)
 
-    if args.checkpoint_interval != -1 and epoch % args.checkpoint_interval == 0:
-        # Save model checkpoints
-        torch.save(
-            generator.state_dict(),
-            os.path.join(
-                args.save_dir, args.dataset_name, f"generator_{args.epoch}.pth"
-            ),
-        )
-        torch.save(
-            discriminator.state_dict(),
-            os.path.join(
-                args.save_dir, args.dataset_name, f"discriminator_{args.epoch}.pth"
-            ),
-        )
+        if (
+            args.checkpoint_interval != -1
+            and batches_done % args.checkpoint_interval == 0
+        ):
+            save_models(epoch, batches_done)
+
+        # ------------------------------
+        # End train if starts to destabilize
+        # ------------------------------
+        # numbers determined experimentally
+        if loss_D < 0.05 or loss_warp > 3:
+            print(
+                "Loss_D is less than 0.05 or loss_warp > 3!",
+                "Saving models and ending train to prevent destabilization.",
+            )
+            sample_images(-1, -1)
+            save_models(-1, -1)
+            break
+    else:
+        continue
+    break
