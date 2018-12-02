@@ -62,6 +62,7 @@ class DualUNetUp(UNetUp):
     "Multi-View Image Generation from a Single-View"
     Added by AJ.
     """
+
     def __init__(self, in_size, out_size, dropout=0.0):
         super(DualUNetUp, self).__init__(in_size, out_size, dropout)
 
@@ -132,30 +133,39 @@ class GeneratorUNet(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, in_channels=3):
+    def __init__(self, in_channels=3, img_size=512):
         super(Discriminator, self).__init__()
 
-        def discriminator_block(in_filters, out_filters, normalization=True):
-            """Returns downsampling layers of each discriminator block"""
-            layers = [nn.Conv2d(in_filters, out_filters, 4, stride=2, padding=1)]
-            if normalization:
-                layers.append(nn.InstanceNorm2d(out_filters))
-            layers.append(nn.LeakyReLU(0.2, inplace=True))
-            return layers
+        def discriminator_block(in_feat, out_feat, bn=True):
+            block = [
+                nn.Conv2d(in_feat, out_feat, 3, 2, 1),
+                nn.LeakyReLU(0.2, inplace=True),
+                nn.Dropout2d(0.25),
+            ]
+            if bn:
+                block.append(nn.BatchNorm2d(out_feat, 0.8))
+            return block
 
         self.model = nn.Sequential(
-            *discriminator_block(in_channels * 2, 64, normalization=False),
+            *discriminator_block(in_channels, 16, bn=False),
+            *discriminator_block(16, 32),
+            *discriminator_block(32, 64),
             *discriminator_block(64, 128),
-            *discriminator_block(128, 256),
-            *discriminator_block(256, 512),
-            nn.ZeroPad2d((1, 0, 1, 0)),
-            nn.Conv2d(512, 1, 4, padding=1, bias=False)
         )
 
-    def forward(self, img_A, img_B):
-        # Concatenate image and condition image by channels to produce input
-        img_input = torch.cat((img_A, img_B), 1)
-        return self.model(img_input)
+        # The height and width of downsampled image
+        ds_size = img_size // 2 ** 4
+        self.adv_layer = nn.Sequential(
+            nn.Linear(128 * ds_size ** 2, 1),  # a linear layer
+            nn.Sigmoid(),  # sigmoid to change to probabilities
+        )
+
+    def forward(self, img_real, img_condition):
+        out = self.model(torch.cat((img_real, img_condition), 1))
+        out = out.view(out.shape[0], -1)
+        validity = self.adv_layer(out)
+
+        return validity
 
 
 ##############################
@@ -164,7 +174,7 @@ class Discriminator(nn.Module):
 
 
 class ResidualBlock(nn.Module):
-    def __init__(self, in_features, dropout=0.):
+    def __init__(self, in_features, dropout=0.0):
         super(ResidualBlock, self).__init__()
 
         conv_block = [
@@ -172,7 +182,7 @@ class ResidualBlock(nn.Module):
             nn.Conv2d(in_features, in_features, 3),
             nn.InstanceNorm2d(in_features),
             nn.ReLU(inplace=True),
-            nn.Dropout(dropout), # added by AJ
+            nn.Dropout(dropout),  # added by AJ
             nn.ReflectionPad2d(1),
             nn.Conv2d(in_features, in_features, 3),
             nn.InstanceNorm2d(in_features),

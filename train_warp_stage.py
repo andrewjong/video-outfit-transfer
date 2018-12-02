@@ -3,13 +3,11 @@ Code modified from PyTorch-GAN:
 https://github.com/eriklindernoren/PyTorch-GAN/
 """
 import argparse
-import datetime
 import os
-import sys
-import time
+import json
+from pprint import pprint
 
 import torch
-
 # from torchvision.utils import save_image
 from tqdm import tqdm
 
@@ -99,7 +97,7 @@ parser.add_argument(
 parser.add_argument(
     "--checkpoint_interval",
     type=int,
-    default=-1,
+    default=40,
     help="interval between model checkpoints",
 )
 parser.add_argument(
@@ -108,9 +106,10 @@ parser.add_argument(
     default=8,
     help="number of cpu threads to use during batch generation",
 )
-parser.add_argument("--gpu", default="cuda:0", help="Which GPU to train on")
+parser.add_argument("--gpu", default=0, type=int, help="Set which GPU to train on")
 args = parser.parse_args()
-print(args)
+argparse_dict = vars(args)
+pprint(argparse_dict)
 
 #######################
 # GPU setup
@@ -131,8 +130,14 @@ MODEL_DIR = (
     if args.dataset_name
     else args.save_dir
 )
-os.makedirs(MODEL_DIR, exist_ok=True)
+os.makedirs(os.path.join(MODEL_DIR, "logs"), exist_ok=True)
 
+# Save arguments used
+with open(os.path.join(MODEL_DIR, "logs", "args.json"), "w") as f:
+    json.dump(argparse_dict, f, indent=4)
+# Write progress header
+with open(os.path.join(MODEL_DIR, "logs", "train_log.csv"), "w") as f:
+    f.write("step,loss_D,loss_G,loss_pixel,loss_adversarial")
 ###############################
 # Model, loss, optimizer setup
 ###############################
@@ -144,7 +149,8 @@ criterion_pixelwise = PerPixelCrossEntropyLoss()
 
 # Initialize generator and discriminator
 generator = WarpModule(cloth_channels=args.clothing_channels, dropout=args.dropout)
-discriminator = Discriminator()
+# clothing channels + RGB
+discriminator = Discriminator(in_channels=args.clothing_channels + 3)
 
 if cuda:
     generator = generator.cuda()
@@ -200,7 +206,7 @@ val_dataset = WarpDataset(
 dataloader = torch.utils.data.DataLoader(
     warp_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
 )
-dataloader = torch.utils.data.DataLoader(
+val_dataloader = torch.utils.data.DataLoader(
     val_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
 )
 
@@ -226,21 +232,19 @@ dataloader = torch.utils.data.DataLoader(
 # Tensor type
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
-start_time = time.time()
-
 for epoch in tqdm(
-    range(args.epoch, args.n_epochs), desc="Train progress", units="epoch"
+    range(args.epoch, args.n_epochs), desc="Completed Epochs", unit="epoch"
 ):
-    batch = tqdm(dataloader, units="batch")
-    for bodys, inputs, targets in batch:
+    batch = tqdm(dataloader, unit="batch")
+    for i, (bodys, inputs, targets) in enumerate(batch):
         if cuda:
             bodys = bodys.cuda()
             inputs = inputs.cuda()
             targets = targets.cuda()
 
         # Adversarial ground truths
-        valid_labels = torch.ones(targets.shape[0], dtype=Tensor)
-        fake_labels = torch.zeros(targets.shape[0], dtype=Tensor)
+        valid_labels = torch.ones(targets.shape[0]).type(Tensor)
+        fake_labels = torch.zeros(targets.shape[0]).type(Tensor)
 
         # ------------------
         #  Train Generators
@@ -251,14 +255,14 @@ for epoch in tqdm(
         # GAN loss
         gen_fakes = generator(body=bodys, cloth=inputs)
         pred_fake = discriminator(gen_fakes, bodys)
-        loss_GAN = criterion_GAN(pred_fake, valid_labels)
+        loss_adv = criterion_GAN(pred_fake, valid_labels)
         # Pixel-wise loss
         loss_pixel = criterion_pixelwise(gen_fakes, targets)
 
         # Total loss
-        loss_G = loss_GAN + args.adversarial_weight * loss_pixel
+        loss_warp = loss_pixel + args.adversarial_weight * loss_adv
 
-        loss_G.backward()
+        loss_warp.backward()
 
         optimizer_G.step()
 
@@ -277,7 +281,7 @@ for epoch in tqdm(
         loss_fake = criterion_GAN(pred_fake, fake_labels)
 
         # Total loss
-        loss_D = loss_real + loss_fake
+        loss_D = 0.5 * (loss_real + loss_fake)
 
         loss_D.backward()
         optimizer_D.step()
@@ -285,20 +289,27 @@ for epoch in tqdm(
         # --------------
         #  Log Progress
         # --------------
-
-        # Determine approximate time left
-        batches_done = epoch * len(dataloader) + i
-        batches_left = args.n_epochs * len(dataloader) - batches_done
-        time_left = datetime.timedelta(
-            seconds=batches_left * (time.time() - start_time)
-        )
-        start_time = time.time()
-
         # Print log
         batch.set_description(
-            f"[D loss: {loss_D.item():3f}] [G loss: {loss_G.item():.3f}, "
-            + f"pixel: {loss_pixel.item():.3f}, adv: {loss_GAN.item():.3f}]"
+            f"[D loss: {loss_D.item():3f}] [G loss: {loss_warp.item():.3f}, "
+            + f"pixel: {loss_pixel.item():.3f}, adv: {loss_adv.item():.3f}]"
         )
+
+        # Save to file
+        batches_done = epoch * len(dataloader) + i
+        with open(os.path.join(MODEL_DIR, "logs", "train_log.csv"), "a+") as f:
+            f.write(
+                ",".join(
+                    (
+                        str(batches_done),
+                        str(loss_D.item()),
+                        str(loss_warp.item()),
+                        str(loss_pixel.item()),
+                        str(loss_adv.item()),
+                    )
+                )
+            )
+            f.write("\n")
 
         # If at sample interval save image
         # if batches_done % args.sample_interval == 0:

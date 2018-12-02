@@ -5,3 +5,4 @@ __pycache__
 datasets
 .ipynb_checkpoints
 test_resources
+output

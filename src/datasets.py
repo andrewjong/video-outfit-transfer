@@ -186,7 +186,7 @@ class WarpDataset(Dataset):
 
     def _crop(self, tensor):
         (h_min, hmax), (w_min, w_max) = self.crop_bounds
-        return tensor[:, :, h_min:hmax, w_min:w_max]
+        return tensor[:, h_min:hmax, w_min:w_max]
 
 
 class TextureDataset(Dataset):
