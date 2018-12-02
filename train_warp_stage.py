@@ -40,7 +40,7 @@ parser.add_argument(
     "-d", "--dataset_name", default="", help="Name the dataset for output path"
 )
 parser.add_argument(
-    "-o" "--out_dir",
+    "-o", "--out_dir",
     default=os.path.join("output", "warp_stage"),
     help="Output folder path",
 )
@@ -87,7 +87,7 @@ parser.add_argument("--img_width", type=int, default=512, help="size of image wi
 parser.add_argument(
     "--clothing_channels",
     type=int,
-    default=19,
+    default=3,
     help="number of channels in the clothing segmentation probability maps",
 )
 parser.add_argument(
@@ -204,7 +204,7 @@ input_transform = torchvision.transforms.Compose(
     (
         torchvision.transforms.RandomHorizontalFlip(),
         torchvision.transforms.RandomAffine(
-            degrees=20, translate=(0.4, 0.4), scale=0.2, shear=10
+            degrees=20, translate=(0.4, 0.4), scale=(0.75, 1.25), shear=(-10, 10)
         ),
     )
 )
@@ -218,10 +218,10 @@ dataloader = torch.utils.data.DataLoader(
     warp_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
 )
 
-if args.val_clothing_dir:
+if args.val_dir:
     val_dataset = WarpDataset(
         body_seg_dir=args.body_dir,
-        clothing_seg_dir=args.val_clothing_dir,
+        clothing_seg_dir=args.val_dir,
         crop_bounds=config.CROP_BOUNDS,
     )
     val_dataloader = torch.utils.data.DataLoader(
@@ -229,9 +229,14 @@ if args.val_clothing_dir:
     )
 
 
+os.makedirs(os.path.join("images", "warp_module", args.dataset_name), exist_ok=True) 
 def sample_images(batches_done):
     """Saves a generated sample from the validation set"""
     bodys, inputs, targets = next(iter(val_dataloader))
+    if cuda:
+        bodys = bodys.cuda()
+        inputs = inputs.cuda()
+        targets = targets.cuda()
     fakes = generator(bodys, inputs)
     img_sample = torch.cat((bodys.data, inputs.data, fakes.data, targets.data), -2)
     save_image(
@@ -329,7 +334,7 @@ for epoch in tqdm(
             f.write("\n")
 
         # If at sample interval save image
-        if args.val_clothing_dir and batches_done % args.sample_interval == 0:
+        if args.val_dir and batches_done % args.sample_interval == 0:
             sample_images(batches_done)
 
     if args.checkpoint_interval != -1 and epoch % args.checkpoint_interval == 0:

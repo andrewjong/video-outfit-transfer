@@ -145,15 +145,15 @@ class WarpDataset(Dataset):
         body_seg_file = self._get_matching_body_seg_file(target_cs_file)
         body_seg_img = Image.open(os.path.join(self.body_seg_dir, body_seg_file))
 
+        # apply the transformation if desired
+        if self.input_transform:
+            input_cs_img = self.input_transform(input_cs_img)
+
         # convert to PT tensors and return
         # TODO: normalize the tensors
         body_s = self.body_transforms(body_seg_img)
         input_cs = to_tensor(input_cs_img)
         target_cs = to_tensor(target_cs_img)
-
-        # apply the transformation if desired
-        if self.input_transform:
-            input_cs = self.input_transform(input_cs)
 
         # crop to the proper image size
         if self.crop_bounds is not None:
