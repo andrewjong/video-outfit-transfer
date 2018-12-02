@@ -2,6 +2,7 @@ import os
 import random
 from typing import Set, List, Tuple
 import torchvision
+import os.path as op
 
 import numpy as np
 import torch
@@ -9,8 +10,18 @@ from torch import Tensor
 from PIL import Image
 from torch.utils.data import Dataset
 
-
 to_tensor = torchvision.transforms.ToTensor()
+
+
+def crop(tensor: Tensor, crop_bounds):
+    """
+    Crops a tensor at the given crop bounds.
+    :param tensor:
+    :param crop_bounds:
+    :return:
+    """
+    (h_min, hmax), (w_min, w_max) = crop_bounds
+    return tensor[:, h_min:hmax, w_min:w_max]
 
 
 class WarpDataset(Dataset):
@@ -45,7 +56,7 @@ class WarpDataset(Dataset):
         self.body_seg_files_set: Set[str] = set(os.listdir(body_seg_dir))
         # file extension of the body seg images. probably .png or .jpg
         first_bs = next(iter(self.body_seg_files_set))
-        self.body_seg_ext = os.path.splitext(first_bs)[-1]
+        self.body_seg_ext = op.splitext(first_bs)[-1]
 
         self.clothing_seg_dir = clothing_seg_dir
         # list of file names, mapping to npy arrays
@@ -87,7 +98,7 @@ class WarpDataset(Dataset):
         :raises ValueError: if no corresponding body segmentation image found.
         """
         base_fname = os.path.basename(clothing_seg_fname)
-        fname_no_extension = os.path.splitext(base_fname)[0]
+        fname_no_extension = op.splitext(base_fname)[0]
         body_seg_fname = fname_no_extension + self.body_seg_ext
 
         if body_seg_fname in self.body_seg_files_set:
@@ -157,29 +168,88 @@ class WarpDataset(Dataset):
 
         # crop to the proper image size
         if self.crop_bounds is not None:
-            body_s = self._crop(body_s)
-            input_cs = self._crop(input_cs)
-            target_cs = self._crop(target_cs)
+            body_s = crop(body_s, self.crop_bounds)
+            input_cs = crop(input_cs, self.crop_bounds)
+            target_cs = crop(target_cs, self.crop_bounds)
 
         return body_s, input_cs, target_cs
 
-    def _crop(self, tensor: Tensor):
-        (h_min, hmax), (w_min, w_max) = self.crop_bounds
-        return tensor[:, h_min:hmax, w_min:w_max]
-
 
 class TextureDataset(Dataset):
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        texture_dir,
+        clothing_dir,
+        texture_transform=None,
+        clothing_transform=None,
+        crop_bounds=None,
+    ):
         """
-
         Strategy:
             Get a target photo (.png). Get the matching clothing
             segmentation (.npy).
         """
         super().__init__()
+        self.texture_dir = texture_dir
+        # A set of file names, mapping to RGB images
+        # we choose a set for fast lookups
+        self.texture_files_set: Set[str] = set(os.listdir(texture_dir))
+        # file extension of the texture seg images. probably .png or .jpg
+        first_tex = next(iter(self.texture_files_set))
+        self.texture_ext = op.splitext(first_tex)[-1]
+
+        self.clothing_dir = clothing_dir
+        # list of file names, mapping to npy arrays
+        self.clothing_files: List[str] = os.listdir(clothing_dir)
+        self.transform = texture_transform
+        self.target_transform = clothing_transform
+        self.crop_bounds = crop_bounds
+
+    def _get_matching_texture_file(self, clothing_fname: str):
+        """
+        For a given clothing segmentation file, get the matching body segmentation
+        file that corresponds to it.
+        :param clothing_fname:
+        :return:
+        :raises ValueError: if no corresponding body segmentation image found.
+        """
+        base_fname = os.path.basename(clothing_fname)
+        fname_no_extension = os.path.splitext(base_fname)[0]
+        texture_fname = fname_no_extension + self.texture_ext
+
+        if texture_fname in self.texture_files_set:
+            return texture_fname
+        else:
+            raise ValueError(
+                "No corresponding texture image found. "
+                "Could not find: " + texture_fname
+            )
 
     def __len__(self):
-        pass
+        return len(self.clothing_files)
 
     def __getitem__(self, index):
-        pass
+        """
+        Gets a clothing file and its corresponding texture file.
+        :param index:
+        :return:
+        """
+        clothing_file = self.clothing_files[index]
+        texture_file = self._get_matching_texture_file(clothing_file)
+
+        texture_img = Image.open(op.join(self.texture_dir, texture_file))
+        clothing_img = Image.open(op.join(self.clothing_dir, clothing_file))
+
+        if self.transform:
+            texture_img = self.transform(texture_img)
+        if self.target_transform:
+            clothing_img = self.target_transform(clothing_img)
+
+        texture = to_tensor(texture_img)
+        clothing = to_tensor(clothing_img)
+
+        if self.crop_bounds:
+            texture = crop(texture, self.crop_bounds)
+            clothing = crop(clothing, self.crop_bounds)
+
+        return texture, clothing
