@@ -8,7 +8,10 @@ import json
 from pprint import pprint
 
 import torch
+
 # from torchvision.utils import save_image
+import torchvision
+from torchvision.utils import save_image
 from tqdm import tqdm
 
 import config
@@ -22,25 +25,24 @@ parser = argparse.ArgumentParser(
     description="Train the warp stage.",
 )
 parser.add_argument(
+    "-b",
     "--body_dir",
     default=config.ANDREW_BODY_SEG,
     help="Path to folder containing body segmentation images (*.png or *.jpg)",
 )
 parser.add_argument(
+    "-c",
     "--clothing_dir",
     default=config.ANDREW_CLOTHING_SEG,
-    help="Path to folder containing clothing segmentation images (*.npy)",
+    help="Path to folder containing clothing segmentation images (*.png or *.jpg)",
 )
 parser.add_argument(
-    "--val_clothing_dir",
-    default=config.TINA_CLOTHING_SEG,
-    help="Path to folder for validation",
+    "-d", "--dataset_name", default="", help="Name the dataset for output path"
 )
 parser.add_argument(
-    "--dataset_name", default="", help="Name the dataset for output path"
-)
-parser.add_argument(
-    "--out_dir", default=os.path.join("output", "warp_stage"), help="Output folder path"
+    "-o" "--out_dir",
+    default=os.path.join("output", "warp_stage"),
+    help="Output folder path",
 )
 parser.add_argument(
     "--save_dir",
@@ -92,12 +94,16 @@ parser.add_argument(
     "--sample_interval",
     type=int,
     default=500,
-    help="interval between sampling of images from generators",
+    help="interval between sampling of images from generators. --val_dir must be set for this argument to work!",
+)
+parser.add_argument(
+    "--val_dir",
+    help="Path to folder for validation. Use with samping with the --sample_interval argument.",
 )
 parser.add_argument(
     "--checkpoint_interval",
     type=int,
-    default=40,
+    default=10,
     help="interval between model checkpoints",
 )
 parser.add_argument(
@@ -117,6 +123,7 @@ pprint(argparse_dict)
 cuda = True if torch.cuda.is_available() else False
 if cuda:
     torch.cuda.set_device(args.gpu)
+
 
 #######################
 # Make output folders
@@ -138,13 +145,14 @@ with open(os.path.join(MODEL_DIR, "logs", "args.json"), "w") as f:
 # Write progress header
 with open(os.path.join(MODEL_DIR, "logs", "train_log.csv"), "w") as f:
     f.write("step,loss_D,loss_G,loss_pixel,loss_adversarial")
+
+
 ###############################
 # Model, loss, optimizer setup
 ###############################
 
 # Loss functions
 criterion_GAN = torch.nn.BCELoss()
-
 criterion_pixelwise = PerPixelCrossEntropyLoss()
 
 # Initialize generator and discriminator
@@ -192,37 +200,46 @@ optimizer_D = torch.optim.Adam(
 ###############################
 # Datasets and loaders
 ###############################
-# TODO: dataloaders
+input_transform = torchvision.transforms.Compose(
+    (
+        torchvision.transforms.RandomHorizontalFlip(),
+        torchvision.transforms.RandomAffine(
+            degrees=20, translate=(0.4, 0.4), scale=0.2, shear=10
+        ),
+    )
+)
 warp_dataset = WarpDataset(
     body_seg_dir=args.body_dir,
     clothing_seg_dir=args.clothing_dir,
     crop_bounds=config.CROP_BOUNDS,
-)
-val_dataset = WarpDataset(
-    body_seg_dir=args.body_dir,
-    clothing_seg_dir=args.val_clothing_dir,
-    crop_bounds=config.CROP_BOUNDS,
+    input_transform=input_transform,
 )
 dataloader = torch.utils.data.DataLoader(
     warp_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
 )
-val_dataloader = torch.utils.data.DataLoader(
-    val_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
-)
 
-# def sample_images(batches_done):
-#     """Saves a generated sample from the validation set"""
-#     imgs = next(iter(val_dataloader))
-#     real_A = Variable(imgs["B"].type(Tensor))
-#     real_B = Variable(imgs["A"].type(Tensor))
-#     fake_B = generator(real_A)
-#     img_sample = torch.cat((real_A.data, fake_B.data, real_B.data), -2)
-#     save_image(
-#         img_sample,
-#         "images/%s/%s.png" % (args.dataset_name, batches_done),
-#         nrow=5,
-#         normalize=True,
-#     )
+if args.val_clothing_dir:
+    val_dataset = WarpDataset(
+        body_seg_dir=args.body_dir,
+        clothing_seg_dir=args.val_clothing_dir,
+        crop_bounds=config.CROP_BOUNDS,
+    )
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
+    )
+
+
+def sample_images(batches_done):
+    """Saves a generated sample from the validation set"""
+    bodys, inputs, targets = next(iter(val_dataloader))
+    fakes = generator(bodys, inputs)
+    img_sample = torch.cat((bodys.data, inputs.data, fakes.data, targets.data), -2)
+    save_image(
+        img_sample,
+        os.path.join("images", "warp_module", args.dataset_name, f"{batches_done}.png"),
+        nrow=5,
+        normalize=True,
+    )
 
 
 ###############################
@@ -312,8 +329,8 @@ for epoch in tqdm(
             f.write("\n")
 
         # If at sample interval save image
-        # if batches_done % args.sample_interval == 0:
-        #     sample_images(batches_done)
+        if args.val_clothing_dir and batches_done % args.sample_interval == 0:
+            sample_images(batches_done)
 
     if args.checkpoint_interval != -1 and epoch % args.checkpoint_interval == 0:
         # Save model checkpoints

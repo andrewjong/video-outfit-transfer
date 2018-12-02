@@ -10,21 +10,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 
 
-# TODO: Per channel random transforms.
-# def per_channel_affine(inp: np.ndarray):
-#     """
-#     :param inp: C x H x W tensor
-#     :return: Tensor with
-#     """
-#     np.split(inp, inp.shape[0], axis=0)
-#
-#     pass
-#
-# ROTATE_ANGLE = 15
-#
-# the_transforms = transforms.Compose([
-#     transforms.Lambda(lambda inp: per_channel_affine(inp)),
-# ] )
+to_tensor = torchvision.transforms.ToTensor()
 
 
 class WarpDataset(Dataset):
@@ -35,7 +21,7 @@ class WarpDataset(Dataset):
         crop_bounds: Tuple[Tuple[int, int], Tuple[int, int]] = None,
         min_offset: int = 100,
         random_seed=None,
-        transform=None,
+        input_transform=None,
         body_means=None,
         body_stds=None,
     ):
@@ -50,7 +36,7 @@ class WarpDataset(Dataset):
         segmentation. (default: 50; unless min_offset < number of clothing files,
         then 0)
         :param random_seed: seed for getting a random clothing seg image
-        :param transform: transform for the random drawn clothing segmentation image.
+        :param input_transform: transform for the random drawn clothing segmentation image.
         Note, the transform must be able to operate on a HxWx19-channel tensor
         """
         self.body_seg_dir = body_seg_dir
@@ -71,7 +57,7 @@ class WarpDataset(Dataset):
         if random_seed:
             random.seed(random_seed)
         self.random_seed = random_seed
-        self.transform = transform
+        self.input_transform = input_transform
 
         # transforms for RGB images
         body_transforms = [torchvision.transforms.ToTensor()]
@@ -150,22 +136,10 @@ class WarpDataset(Dataset):
         """
         # Load as np arrays
         target_cs_file = self.clothing_seg_files[index]
-        target_cs_ndarray = np.load(os.path.join(self.clothing_seg_dir, target_cs_file))
-        # files are shaped (1, w, h, c). shouldn't have that extra dimension in front
-        target_cs_ndarray = np.squeeze(target_cs_ndarray, 0)
-        # move the channel axis up, as PyTorch likes CxHxW format
-        target_cs_ndarray = np.moveaxis(target_cs_ndarray, -1, 0)
+        target_cs_img = Image.open(os.path.join(self.clothing_seg_dir, target_cs_file))
 
         input_cs_file = self._get_random_clothing_seg(index)
-        input_cs_ndarray = np.load(os.path.join(self.clothing_seg_dir, input_cs_file))
-        # files are shaped (1, w, h, c). shouldn't have that extra dimension in front
-        input_cs_ndarray = np.squeeze(input_cs_ndarray, 0)
-        # move the channel axis up, as PyTorch likes CxHxW format
-        input_cs_ndarray = np.moveaxis(input_cs_ndarray, -1, 0)
-
-        # apply the transformation if desired
-        if self.transform:
-            input_cs_ndarray = self.transform(input_cs_ndarray)
+        input_cs_img = Image.open(os.path.join(self.clothing_seg_dir, input_cs_file))
 
         # the body segmentation that corresponds to the target
         body_seg_file = self._get_matching_body_seg_file(target_cs_file)
@@ -174,9 +148,14 @@ class WarpDataset(Dataset):
         # convert to PT tensors and return
         # TODO: normalize the tensors
         body_s = self.body_transforms(body_seg_img)
-        input_cs = torch.FloatTensor(input_cs_ndarray)
-        target_cs = torch.FloatTensor(target_cs_ndarray)
+        input_cs = to_tensor(input_cs_img)
+        target_cs = to_tensor(target_cs_img)
 
+        # apply the transformation if desired
+        if self.input_transform:
+            input_cs = self.input_transform(input_cs)
+
+        # crop to the proper image size
         if self.crop_bounds is not None:
             body_s = self._crop(body_s)
             input_cs = self._crop(input_cs)
@@ -184,7 +163,7 @@ class WarpDataset(Dataset):
 
         return body_s, input_cs, target_cs
 
-    def _crop(self, tensor):
+    def _crop(self, tensor: Tensor):
         (h_min, hmax), (w_min, w_max) = self.crop_bounds
         return tensor[:, h_min:hmax, w_min:w_max]
 
@@ -192,8 +171,6 @@ class WarpDataset(Dataset):
 class TextureDataset(Dataset):
     def __init__(self) -> None:
         """
-
-
 
         Strategy:
             Get a target photo (.png). Get the matching clothing
