@@ -1,8 +1,9 @@
 .vscode
 .idea
-models
+*.pth
 __pycache__
 datasets
 .ipynb_checkpoints
 test_resources
 output
+images
