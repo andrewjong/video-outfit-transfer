@@ -364,9 +364,9 @@ for epoch in tqdm(
         # End train if starts to destabilize
         # ------------------------------
         # numbers determined experimentally
-        if loss_D < 0.05 or loss_warp > 3:
+        if loss_D < 0.05 and loss_warp > 3:
             print(
-                "Loss_D is less than 0.05 or loss_warp > 3!",
+                "Loss_D is less than 0.05 and loss_warp > 3!",
                 "Saving models and ending train to prevent destabilization.",
             )
             sample_images(-1, -1)
