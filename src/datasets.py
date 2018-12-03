@@ -1,8 +1,10 @@
 import os
+import pandas as pd
 import random
 from typing import Set, List, Tuple
 import torchvision
 import os.path as op
+import torchvision.transforms.functional as t_func
 
 import numpy as np
 import torch
@@ -35,6 +37,7 @@ class WarpDataset(Dataset):
         input_transform=None,
         body_means=None,
         body_stds=None,
+        inference_mode=False,
     ):
         """
         Warp dataset for the warping module of SwapNet. All files in the dataset must be
@@ -53,7 +56,8 @@ class WarpDataset(Dataset):
         self.body_seg_dir = body_seg_dir
         # A set of file names, mapping to RGB images
         # we choose a set for fast lookups
-        self.body_seg_files_set: Set[str] = set(os.listdir(body_seg_dir))
+        self.body_seg_files = os.listdir(body_seg_dir)
+        self.body_seg_files_set: Set[str] = set(self.body_seg_files)
         # file extension of the body seg images. probably .png or .jpg
         first_bs = next(iter(self.body_seg_files_set))
         self.body_seg_ext = op.splitext(first_bs)[-1]
@@ -77,6 +81,7 @@ class WarpDataset(Dataset):
                 torchvision.transforms.Normalize(body_means, body_stds)
             )
         self.body_transforms = torchvision.transforms.Compose(body_transforms)
+        self.inference_mode = inference_mode
 
     def __len__(self):
         """
@@ -138,13 +143,14 @@ class WarpDataset(Dataset):
         Strategy:
             Get a target clothing segmentation (.npy). Get the matching body
             segmentation (.png)
-            Choose a random starting clothing segmentation from a different frame
-            (.npy), and perform data augmention on each channel of that frame
+            Choose a random starting clothing segmentation from a different frame_num
+            (.npy), and perform data augmention on each channel of that frame_num
 
         :param index:
         :return: body segmentation, input clothing segmentation, target clothing
         segmentation
         """
+
         # Load as np arrays
         target_cs_file = self.clothing_seg_files[index]
         target_cs_img = Image.open(os.path.join(self.clothing_seg_dir, target_cs_file))
@@ -153,7 +159,11 @@ class WarpDataset(Dataset):
         input_cs_img = Image.open(os.path.join(self.clothing_seg_dir, input_cs_file))
 
         # the body segmentation that corresponds to the target
-        body_seg_file = self._get_matching_body_seg_file(target_cs_file)
+        body_seg_file = (
+            self._get_matching_body_seg_file(target_cs_file)
+            if not self.inference_mode
+            else self.body_seg_files[index]
+        )
         body_seg_img = Image.open(os.path.join(self.body_seg_dir, body_seg_file))
 
         # apply the transformation if desired
@@ -175,58 +185,108 @@ class WarpDataset(Dataset):
         return body_s, input_cs, target_cs
 
 
+# TODO: lot of duplicated code. have to optimize this
 class TextureDataset(Dataset):
     def __init__(
-        self,
-        texture_dir,
-        clothing_dir,
-        texture_transform=None,
-        clothing_transform=None,
-        crop_bounds=None,
+        self, texture_dir, roi_dir, clothing_dir, min_offset=100, crop_bounds=None
     ):
         """
         Strategy:
             Get a target photo (.png). Get the matching clothing
             segmentation (.npy).
+
+
+        HAVE TO UPDATE THE ROI TO MATCH CROP BOUNDS AND POSSIBLE NONE TYPES
+        WHAT DO IF NONE? PUT ZERO?
+
+
+        From the target image, get the matching clothing img.
+        apply the SAME transform to the clothing img and target texture
         """
         super().__init__()
-        self.texture_dir = texture_dir
-        # A set of file names, mapping to RGB images
-        # we choose a set for fast lookups
-        self.texture_files_set: Set[str] = set(os.listdir(texture_dir))
-        # file extension of the texture seg images. probably .png or .jpg
-        first_tex = next(iter(self.texture_files_set))
-        self.texture_ext = op.splitext(first_tex)[-1]
 
+        self.texture_dir = texture_dir
+        self.texture_files = os.listdir(texture_dir)
+
+        self.roi_dir = roi_dir
         self.clothing_dir = clothing_dir
-        # list of file names, mapping to npy arrays
-        self.clothing_files: List[str] = os.listdir(clothing_dir)
-        self.transform = texture_transform
-        self.target_transform = clothing_transform
+
+        self.min_offset = min_offset
         self.crop_bounds = crop_bounds
 
-    def _get_matching_texture_file(self, clothing_fname: str):
+    def _get_random_texture(self, index):
         """
-        For a given clothing segmentation file, get the matching body segmentation
-        file that corresponds to it.
-        :param clothing_fname:
-        :return:
-        :raises ValueError: if no corresponding body segmentation image found.
-        """
-        base_fname = os.path.basename(clothing_fname)
-        fname_no_extension = os.path.splitext(base_fname)[0]
-        texture_fname = fname_no_extension + self.texture_ext
+        Note, this implementation isn't perfect, but should be good enough for now (
+        we're on a deadline).
 
-        if texture_fname in self.texture_files_set:
-            return texture_fname
-        else:
-            raise ValueError(
-                "No corresponding texture image found. "
-                "Could not find: " + texture_fname
-            )
+        Unaccounted corner cases: index == 0 or index == max-index
+        :param index:
+        :return:
+        """
+        min_thresh = index - self.min_offset
+        max_thresh = index + self.min_offset + 1  # + 1 so that
+        # make sure we're not out-of-bounds
+        if min_thresh < 0:
+            min_thresh = 0
+        if max_thresh >= len(self.texture_files):
+            max_thresh = len(self.texture_files) - 1
+
+        # our valid set
+        valid_choices = (
+            self.texture_files[:min_thresh] + self.texture_files[max_thresh:]
+        )
+
+        return random.choice(valid_choices)
+
+    def get_matching_file(self, fname, dir, ext):
+        """
+        Given a filename, get the matching file in a different directory that has a
+        different extension.
+        :param fname:
+        :param dir: other dir to get the file from
+        :param ext:
+        :return:
+        """
+        fname = op.basename(fname)
+        fname_no_ext = op.splitext(fname)[0]
+        cloth_name = fname_no_ext + ext
+        return op.join(dir, cloth_name)
 
     def __len__(self):
-        return len(self.clothing_files)
+        return len(self.texture_files)
+
+    def _roi_csv_to_nparray(self, roi_file, crop_bounds=None):
+        """
+        Converts region of interests stored as csv into a np array.
+        csv stored as: id, xmin, ymin, xmax, ymax
+
+        :param roi_file: full path to .csv file
+        :param crop_bounds: tuple ((hmin, hmax), (wmin, wmax))
+        :return:
+        """
+        df = pd.read_csv(roi_file)
+        rois = df.values
+        # remove the background channel if it's there
+        if rois.shape[0] == 7:
+            rois = rois[1:, :]
+
+        # TODO: might have to worry about nan values?
+        if crop_bounds is not None:
+            (hmin, hmax), (wmin, wmax) = crop_bounds
+            # clip the x-axis to be within bounds. xmin and xmax index
+            xs = rois[:, (1, 2)]
+            xs = np.clip(xs, wmin, wmax - 1)
+            xs -= xs.min(axis=0)  # translate
+            # clip the y-axis to be within bounds. ymin and ymax index
+            ys = rois[:, (3, 4)]
+            ys = np.clip(ys, hmin, hmax - 1)
+            ys -= ys.min(axis=0)  # translate
+            # put it back together again
+            rois = np.stack((rois[:, 0], xs[:, 0], ys[:, 0], xs[:, 1], ys[:, 1]))
+            # transpose because stack stacked them opposite of what we want
+            rois = rois.T
+
+        return rois
 
     def __getitem__(self, index):
         """
@@ -234,22 +294,31 @@ class TextureDataset(Dataset):
         :param index:
         :return:
         """
-        clothing_file = self.clothing_files[index]
-        texture_file = self._get_matching_texture_file(clothing_file)
+        texture_file = op.join(self.texture_dir, self.texture_files[index])
+        texture_img = Image.open(texture_file)
 
-        texture_img = Image.open(op.join(self.texture_dir, texture_file))
-        clothing_img = Image.open(op.join(self.clothing_dir, clothing_file))
+        target_tex_file = op.join(self.texture_dir, self._get_random_texture(index))
+        target_tex_img = Image.open(target_tex_file)
 
-        if self.transform:
-            texture_img = self.transform(texture_img)
-        if self.target_transform:
-            clothing_img = self.target_transform(clothing_img)
+        roi_file = self.get_matching_file(texture_file, self.roi_dir, ".csv")
+        rois = self._roi_csv_to_nparray(roi_file, self.crop_bounds)
+
+        cloth_file = self.get_matching_file(target_tex_file, self.clothing_dir, ".png")
+        cloth_img = Image.open(cloth_file)
+
+        if random.random() > 0.5:
+            target_tex_img = t_func.hflip(target_tex_img)
+            cloth_img = t_func.hflip(cloth_img)
 
         texture = to_tensor(texture_img)
-        clothing = to_tensor(clothing_img)
+        rois = torch.from_numpy(rois).float()
+        cloth = to_tensor(cloth_img)
+        target = to_tensor(target_tex_img)
 
         if self.crop_bounds:
             texture = crop(texture, self.crop_bounds)
-            clothing = crop(clothing, self.crop_bounds)
+            # ROI is already cropped
+            cloth = crop(cloth, self.crop_bounds)
+            target = crop(target, self.crop_bounds)
 
-        return texture, clothing
+        return texture, rois, cloth, target
