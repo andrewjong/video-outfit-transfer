@@ -56,7 +56,7 @@ class WarpDataset(Dataset):
         self.body_seg_dir = body_seg_dir
         # A set of file names, mapping to RGB images
         # we choose a set for fast lookups
-        self.body_seg_files = os.listdir(body_seg_dir)
+        self.body_seg_files = sorted(os.listdir(body_seg_dir))
         self.body_seg_files_set: Set[str] = set(self.body_seg_files)
         # file extension of the body seg images. probably .png or .jpg
         first_bs = next(iter(self.body_seg_files_set))

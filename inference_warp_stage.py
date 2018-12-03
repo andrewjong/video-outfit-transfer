@@ -75,6 +75,8 @@ dataloader = torch.utils.data.DataLoader(
     warp_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
 )
 
+os.makedirs(args.out_dir, exist_ok=True)
+
 frame_num = 0
 for bodys, inputs, _ in tqdm(dataloader):
     if cuda:
