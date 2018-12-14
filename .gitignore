@@ -2,6 +2,7 @@
 .idea
 *.pth
 __pycache__
+data
 datasets
 .ipynb_checkpoints
 test_resources
