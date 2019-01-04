@@ -5,8 +5,9 @@ channels:
 dependencies:
   - blas=1.0=mkl
   - ca-certificates=2018.03.07=0
-  - certifi=2018.11.29=py37_0
-  - cffi=1.11.5=py37he75722e_1
+  - certifi=2018.11.29=py36_0
+  - cffi=1.11.5=py36he75722e_1
+  - cudatoolkit=8.0=3
   - freetype=2.9.1=h8a8886c_1
   - intel-openmp=2019.1=144
   - jpeg=9b=h024ee3a_2
@@ -18,31 +19,43 @@ dependencies:
   - libstdcxx-ng=8.2.0=hdf63c60_1
   - libtiff=4.0.9=he85c1e1_2
   - mkl=2019.1=144
-  - mkl_fft=1.0.6=py37hd81dba3_0
-  - mkl_random=1.0.2=py37hd81dba3_0
+  - mkl_fft=1.0.6=py36hd81dba3_0
+  - mkl_random=1.0.2=py36hd81dba3_0
   - ncurses=6.1=he6710b0_1
-  - ninja=1.8.2=py37h6bb024c_1
-  - numpy=1.15.4=py37h7e9f1db_0
-  - numpy-base=1.15.4=py37hde5b4d6_0
-  - olefile=0.46=py37_0
+  - ninja=1.8.2=py36h6bb024c_1
+  - numpy=1.15.4=py36h7e9f1db_0
+  - numpy-base=1.15.4=py36hde5b4d6_0
+  - olefile=0.46=py36_0
   - openssl=1.1.1a=h7b6447c_0
-  - pandas=0.23.4=py37h04863e7_0
-  - pillow=5.3.0=py37h34e0f95_0
-  - pip=18.1=py37_0
-  - pycparser=2.19=py37_0
-  - python=3.7.2=h0371630_0
-  - python-dateutil=2.7.5=py37_0
-  - pytz=2018.7=py37_0
+  - pandas=0.23.4=py36h04863e7_0
+  - pillow=5.3.0=py36h34e0f95_0
+  - pip=18.1=py36_0
+  - pycparser=2.19=py36_0
+  - python=3.6.8=h0371630_0
+  - python-dateutil=2.7.5=py36_0
+  - pytz=2018.7=py36_0
   - readline=7.0=h7b6447c_5
-  - setuptools=40.6.3=py37_0
-  - six=1.12.0=py37_0
+  - setuptools=40.6.3=py36_0
+  - six=1.12.0=py36_0
   - sqlite=3.26.0=h7b6447c_0
   - tk=8.6.8=hbc83047_0
-  - wheel=0.32.3=py37_0
+  - tqdm=4.28.1=py36h28b3542_0
+  - wheel=0.32.3=py36_0
   - xz=5.2.4=h14c3975_4
   - zlib=1.2.11=h7b6447c_3
-  - pytorch=1.0.0=py3.7_cuda9.0.176_cudnn7.4.1_1
+  - pytorch=0.4.0=py36_cuda8.0.61_cudnn7.1.2_1
   - torchvision=0.2.1=py_2
   - pip:
-    - torch==1.0.0
-    - tqdm==4.28.1
+    - cycler==0.10.0
+    - cython==0.29.2
+    - easydict==1.9
+    - kiwisolver==1.0.1
+    - matplotlib==3.0.2
+    - msgpack==0.6.0
+    - opencv-python==3.4.5.20
+    - protobuf==3.6.1
+    - pyparsing==2.3.0
+    - pyyaml==3.13
+    - scipy==1.2.0
+    - tensorboardx==1.6
+    - torch==0.4.0

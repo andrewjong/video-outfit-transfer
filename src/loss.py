@@ -9,11 +9,10 @@ class PerPixelCrossEntropyLoss(_WeightedLoss):
         weight=None,
         size_average=None,
         ignore_index=-100,
-        reduce=None,
-        reduction="elementwise_mean",
+        reduce=None
     ):
         super(PerPixelCrossEntropyLoss, self).__init__(
-            weight, size_average, reduce, reduction
+            weight, size_average, reduce
         )
         self.ignore_index = ignore_index
 
@@ -30,5 +29,4 @@ class PerPixelCrossEntropyLoss(_WeightedLoss):
             target_labels,
             weight=self.weight,
             ignore_index=self.ignore_index,
-            reduction=self.reduction,
         )
