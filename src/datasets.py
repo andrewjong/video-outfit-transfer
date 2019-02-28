@@ -19,11 +19,31 @@ def crop(tensor: Tensor, crop_bounds):
     """
     Crops a tensor at the given crop bounds.
     :param tensor:
-    :param crop_bounds:
+    :param crop_bounds: ((h_min, h_max), (w_min,w_max))
     :return:
     """
     (h_min, hmax), (w_min, w_max) = crop_bounds
     return tensor[:, h_min:hmax, w_min:w_max]
+
+
+def crop_rois(rois: np.ndarray, crop_bounds):
+    # TODO: might have to worry about nan values?
+    if crop_bounds is not None:
+        rois = rois.copy()
+        (hmin, hmax), (wmin, wmax) = crop_bounds
+        # clip the x-axis to be within bounds. xmin and xmax index
+        xs = rois[:, (1, 2)]
+        xs = np.clip(xs, wmin, wmax - 1)
+        xs -= xs.min(axis=0)  # translate
+        # clip the y-axis to be within bounds. ymin and ymax index
+        ys = rois[:, (3, 4)]
+        ys = np.clip(ys, hmin, hmax - 1)
+        ys -= ys.min(axis=0)  # translate
+        # put it back together again
+        rois = np.stack((rois[:, 0], xs[:, 0], ys[:, 0], xs[:, 1], ys[:, 1]))
+        # transpose because stack stacked them opposite of what we want
+        rois = rois.T
+    return rois
 
 
 class WarpDataset(Dataset):
@@ -188,7 +208,7 @@ class WarpDataset(Dataset):
 # TODO: lot of duplicated code. have to optimize this
 class TextureDataset(Dataset):
     def __init__(
-        self, texture_dir, roi_dir, clothing_dir, min_offset=100, crop_bounds=None
+        self, texture_dir, rois, clothing_dir, min_offset=100, crop_bounds=None
     ):
         """
         Strategy:
@@ -208,7 +228,9 @@ class TextureDataset(Dataset):
         self.texture_dir = texture_dir
         self.texture_files = os.listdir(texture_dir)
 
-        self.roi_dir = roi_dir
+        rois = pd.read_csv(rois, index_col=False)
+        crop_rois(rois, crop_bounds)
+        self.rois = rois
         self.clothing_dir = clothing_dir
 
         self.min_offset = min_offset
@@ -255,37 +277,12 @@ class TextureDataset(Dataset):
     def __len__(self):
         return len(self.texture_files)
 
-    def _roi_csv_to_nparray(self, roi_file, crop_bounds=None):
+    def get_matching_rois(self, index):
         """
-        Converts region of interests stored as csv into a np array.
-        csv stored as: id, xmin, ymin, xmax, ymax
-
-        :param roi_file: full path to .csv file
-        :param crop_bounds: tuple ((hmin, hmax), (wmin, wmax))
+        get matching roi based on index
         :return:
         """
-        df = pd.read_csv(roi_file)
-        rois = df.values
-        # remove the background channel if it's there
-        if rois.shape[0] == 7:
-            rois = rois[1:, :]
-
-        # TODO: might have to worry about nan values?
-        if crop_bounds is not None:
-            (hmin, hmax), (wmin, wmax) = crop_bounds
-            # clip the x-axis to be within bounds. xmin and xmax index
-            xs = rois[:, (1, 2)]
-            xs = np.clip(xs, wmin, wmax - 1)
-            xs -= xs.min(axis=0)  # translate
-            # clip the y-axis to be within bounds. ymin and ymax index
-            ys = rois[:, (3, 4)]
-            ys = np.clip(ys, hmin, hmax - 1)
-            ys -= ys.min(axis=0)  # translate
-            # put it back together again
-            rois = np.stack((rois[:, 0], xs[:, 0], ys[:, 0], xs[:, 1], ys[:, 1]))
-            # transpose because stack stacked them opposite of what we want
-            rois = rois.T
-
+        rois = self.rois[self.rois["id"] == index].values
         return rois
 
     def __getitem__(self, index):
@@ -300,9 +297,6 @@ class TextureDataset(Dataset):
         target_tex_file = op.join(self.texture_dir, self._get_random_texture(index))
         target_tex_img = Image.open(target_tex_file)
 
-        roi_file = self.get_matching_file(texture_file, self.roi_dir, ".csv")
-        rois = self._roi_csv_to_nparray(roi_file, self.crop_bounds)
-
         cloth_file = self.get_matching_file(target_tex_file, self.clothing_dir, ".png")
         cloth_img = Image.open(cloth_file)
 
@@ -311,7 +305,7 @@ class TextureDataset(Dataset):
             cloth_img = t_func.hflip(cloth_img)
 
         texture = to_tensor(texture_img)
-        rois = torch.from_numpy(rois).float()
+        rois = self.get_matching_rois(index)
         cloth = to_tensor(cloth_img)
         target = to_tensor(target_tex_img)
 
