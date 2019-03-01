@@ -208,7 +208,7 @@ class WarpDataset(Dataset):
 # TODO: lot of duplicated code. have to optimize this
 class TextureDataset(Dataset):
     def __init__(
-        self, texture_dir, rois, clothing_dir, min_offset=100, crop_bounds=None
+        self, texture_dir, rois_db, clothing_dir, min_offset=100, crop_bounds=None
     ):
         """
         Strategy:
@@ -228,11 +228,13 @@ class TextureDataset(Dataset):
         self.texture_dir = texture_dir
         self.texture_files = os.listdir(texture_dir)
 
-        rois_df = pd.read_csv(rois, index_col=False)
+        rois_df = pd.read_csv(rois_db, index_col=False)
         # remove None values
-        rois_df.replace("None", 0)
-        crop_rois(rois, crop_bounds)
-        self.rois = torch.from_numpy(rois)
+        rois_df.replace("None", 0, inplace=True)
+        rois_df = rois_df.astype(np.float16)
+        rois_np = rois_df.values
+        crop_rois(rois_np, crop_bounds)
+        self.rois = torch.from_numpy(rois_np)
         self.clothing_dir = clothing_dir
 
         self.min_offset = min_offset
