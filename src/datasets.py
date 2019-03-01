@@ -230,11 +230,7 @@ class TextureDataset(Dataset):
 
         rois_df = pd.read_csv(rois_db, index_col=False)
         # remove None values
-        rois_df.replace("None", 0, inplace=True)
-        rois_df = rois_df.astype(np.float16)
-        rois_np = rois_df.values
-        crop_rois(rois_np, crop_bounds)
-        self.rois = torch.from_numpy(rois_np)
+        self.rois_df = rois_df.replace("None", 0).astype(np.float16)
         self.clothing_dir = clothing_dir
 
         self.min_offset = min_offset
@@ -286,8 +282,8 @@ class TextureDataset(Dataset):
         get matching roi based on index
         :return:
         """
-        rois = self.rois[self.rois["id"] == index].values
-        return rois
+        rois_np = self.rois_df[self.rois_df["id"] == index].values
+        return rois_np
 
     def __getitem__(self, index):
         """
@@ -315,8 +311,10 @@ class TextureDataset(Dataset):
 
         if self.crop_bounds:
             texture = crop(texture, self.crop_bounds)
-            # ROI is already cropped
+            rois = crop_rois(rois, self.crop_bounds)
             cloth = crop(cloth, self.crop_bounds)
             target = crop(target, self.crop_bounds)
+
+        rois = torch.from_numpy(rois)
 
         return texture, rois, cloth, target
