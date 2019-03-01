@@ -230,7 +230,7 @@ class TextureDataset(Dataset):
 
         rois_df = pd.read_csv(rois_db, index_col=False)
         # remove None values
-        self.rois_df = rois_df.replace("None", 0).astype(np.float16)
+        self.rois_df = rois_df.replace("None", 0).astype(np.float32)
         self.clothing_dir = clothing_dir
 
         self.min_offset = min_offset
