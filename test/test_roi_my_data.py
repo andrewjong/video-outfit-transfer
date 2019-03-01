@@ -10,7 +10,7 @@ from src.datasets import TextureDataset
 roi_align = ROIAlign((10, 10), spatial_scale=1 / 16, sampling_ratio=0)
 texture_dataset = TextureDataset(
     texture_dir="data/andrew/texture",
-    rois="data/andrew/rois",
+    rois="data/andrew/rois.csv",
     clothing_dir="data/andrew/clothing",
 )
 

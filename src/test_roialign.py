@@ -10,7 +10,7 @@ from src.datasets import TextureDataset
 roi_align = ROIAlign((10, 10), spatial_scale=1 / 16, sampling_ratio=0)
 texture_dataset = TextureDataset(
     texture_dir="data/andrew/texture",
-    rois="data/andrew/rois",
+    rois="data/andrew/rois.csv",
     clothing_dir="data/andrew/clothing",
 )
 first = texture_dataset[0]
@@ -27,6 +27,7 @@ my_roi = first[1]
 # roi_thing = torch.tensor([[0, 0, 0, 50, 50], [0, 0, 0, 50, 50]])
 # THIS DOES, explicitly set dtype
 
+input = torch.ones([1, 3, 512, 512])
 roi_thing = torch.tensor([[0, 0, 0, 50, 50], [0, 0, 0, 50, 50]], dtype=torch.float32)
 roi_align(expanded, roi_thing)
 
@@ -73,5 +74,5 @@ roi_align(imgs, rois) # works!!!
 # this means roi shouldn't be 1-6, but rather the id of the image
 
 
-# Also need the compile-fastercnn-pytorch environment activated. probably need to
+# TODO: Also need the compile-fastercnn-pytorch environment activated. probably need to
 # install the correct dependencies

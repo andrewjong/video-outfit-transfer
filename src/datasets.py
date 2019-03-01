@@ -228,9 +228,11 @@ class TextureDataset(Dataset):
         self.texture_dir = texture_dir
         self.texture_files = os.listdir(texture_dir)
 
-        rois = pd.read_csv(rois, index_col=False)
+        rois_df = pd.read_csv(rois, index_col=False)
+        # remove None values
+        rois_df.replace("None", 0)
         crop_rois(rois, crop_bounds)
-        self.rois = rois
+        self.rois = torch.from_numpy(rois, dtype=torch.float)
         self.clothing_dir = clothing_dir
 
         self.min_offset = min_offset
