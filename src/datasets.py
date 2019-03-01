@@ -232,7 +232,7 @@ class TextureDataset(Dataset):
         # remove None values
         rois_df.replace("None", 0)
         crop_rois(rois, crop_bounds)
-        self.rois = torch.from_numpy(rois, dtype=torch.float)
+        self.rois = torch.from_numpy(rois)
         self.clothing_dir = clothing_dir
 
         self.min_offset = min_offset
