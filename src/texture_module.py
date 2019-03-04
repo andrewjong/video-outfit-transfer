@@ -1,8 +1,9 @@
 import torch
+sys.path.append("/home/remoteuser/faster-rcnn.pytorch/lib")
+from model.roi_layers import ROIAlign
 from torch import nn
-from maskrcnn_benchmark.layers import ROIAlign
 
-from src.nets import UNetDown, UNetUp, ResidualBlock, DualUNetUp
+from src.nets import UNetDown, UNetUp
 
 NUM_ROI = 6
 
@@ -37,7 +38,7 @@ class TextureModule(nn.Module):
             nn.Tanh(),
         )
 
-    def forward(self, input_tex, rois, cloth, target_tex):
+    def forward(self, input_tex, rois, cloth):
         pooled_rois = self.roi_align(input_tex, rois)
         encoded_tex = self.encode(pooled_rois)
 

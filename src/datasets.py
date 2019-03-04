@@ -307,14 +307,12 @@ class TextureDataset(Dataset):
         texture = to_tensor(texture_img)
         rois = self.get_matching_rois(index)
         cloth = to_tensor(cloth_img)
-        target = to_tensor(target_tex_img)
 
         if self.crop_bounds:
             texture = crop(texture, self.crop_bounds)
             rois = crop_rois(rois, self.crop_bounds)
             cloth = crop(cloth, self.crop_bounds)
-            target = crop(target, self.crop_bounds)
 
         rois = torch.from_numpy(rois)
 
-        return texture, rois, cloth, target
+        return texture, rois, cloth
