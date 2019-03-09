@@ -294,17 +294,15 @@ class TextureDataset(Dataset):
         texture_file = op.join(self.texture_dir, self.texture_files[index])
         texture_img = Image.open(texture_file)
 
-        target_tex_file = op.join(self.texture_dir, self._get_random_texture(index))
-        target_tex_img = Image.open(target_tex_file)
-
-        cloth_file = self.get_matching_file(target_tex_file, self.clothing_dir, ".png")
+        cloth_file = self.get_matching_file(texture_file, self.clothing_dir, ".png")
         cloth_img = Image.open(cloth_file)
 
         if random.random() > 0.5:
-            target_tex_img = t_func.hflip(target_tex_img)
             cloth_img = t_func.hflip(cloth_img)
 
         texture = to_tensor(texture_img)
+        # TODO: batch is incorrect after batch_size. e.g. if batch size is 2,
+        # index from 2 onward won't work
         rois = self.get_matching_rois(index)
         cloth = to_tensor(cloth_img)
 

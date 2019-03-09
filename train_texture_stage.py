@@ -16,7 +16,7 @@ from tqdm import tqdm
 
 import config
 from src.datasets import WarpDataset, TextureDataset
-from src.loss import PerPixelCrossEntropyLoss
+from src.loss import PerPixelCrossEntropyLoss, FeatureLoss
 from src.nets import Discriminator, weights_init_normal
 from src.texture_module import TextureModule
 from src.warp_module import WarpModule
@@ -24,6 +24,18 @@ from src.warp_module import WarpModule
 parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     description="Train the warp stage.",
+)
+parser.add_argument(
+    "-t",
+    "--texture_dir",
+    default=config.ANDREW_TEXTURE,
+    help="Path to folder containing original texture images",
+)
+parser.add_argument(
+    "-r",
+    "--rois_db",
+    default=config.ANDREW_ROIS,
+    help="Path to file containing the rois info",
 )
 parser.add_argument(
     "-b",
@@ -154,7 +166,8 @@ with open(os.path.join(MODEL_DIR, "logs", "train_log.csv"), "w") as f:
 ###############################
 
 # Loss functions
-criterion_GAN = torch.nn.BCELoss()
+criterion_GAN = torch.nn.BCELoss()  # binary cross entropy
+criterion_feature = FeatureLoss()
 criterion_pixelwise = PerPixelCrossEntropyLoss()
 
 # Initialize generator and discriminator
@@ -211,13 +224,17 @@ input_transform = torchvision.transforms.Compose(
         ),
     )
 )
-texture_dataset = TextureDataset()
+texture_dataset = TextureDataset(
+    args.texture_dir, args.rois_db, args.clothing_dir, config.CROP_BOUNDS
+)
 dataloader = torch.utils.data.DataLoader(
     texture_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
 )
 
 if args.val_dir:
-    val_dataset = TextureDataset()
+    val_dataset = TextureDataset(
+        args.texture_dir, args.rois_db, args.val_dir, config.CROP_BOUNDS
+    )
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
     )
@@ -225,13 +242,13 @@ if args.val_dir:
 
 def sample_images(epoch, batches_done):
     """Saves a generated sample from the validation set"""
-    bodys, inputs, targets = next(iter(val_dataloader))
+    textures, rois, clothing = next(iter(val_dataloader))
     if cuda:
-        bodys = bodys.cuda()
-        inputs = inputs.cuda()
-        targets = targets.cuda()
-    fakes = generator(bodys, inputs)
-    img_sample = torch.cat((bodys.data, inputs.data, fakes.data, targets.data), -2)
+        textures = textures.cuda()
+        rois = rois.cuda()
+        clothing = clothing.cuda()
+    fakes = generator(textures, rois)
+    img_sample = torch.cat((textures.data, rois.data, fakes.data, clothing.data), -2)
     save_image(
         img_sample,
         os.path.join(OUT_DIR, f"{epoch:02d}_{batches_done:05d}.png"),
@@ -261,18 +278,18 @@ def save_models(epoch, batches_done):
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
 for epoch in tqdm(
-        range(args.epoch, args.n_epochs), desc="Completed Epochs", unit="epoch"
+    range(args.epoch, args.n_epochs), desc="Completed Epochs", unit="epoch"
 ):
     batch = tqdm(dataloader, unit="batch")
-    for i, (bodys, inputs, targets) in enumerate(batch):
+    for i, (textures, rois, cloths) in enumerate(batch):
         if cuda:
-            bodys = bodys.cuda()
-            inputs = inputs.cuda()
-            targets = targets.cuda()
+            textures = textures.cuda()
+            rois = rois.cuda()
+            cloths = cloths.cuda()
 
         # Adversarial ground truths
-        valid_labels = torch.ones(targets.shape[0]).type(Tensor)
-        fake_labels = torch.zeros(targets.shape[0]).type(Tensor)
+        valid_labels = torch.ones(cloths.shape[0]).type(Tensor)
+        fake_labels = torch.zeros(cloths.shape[0]).type(Tensor)
 
         # ------------------
         #  Train Generators
@@ -281,11 +298,11 @@ for epoch in tqdm(
         optimizer_G.zero_grad()
 
         # GAN loss
-        gen_fakes = generator(body=bodys, cloth=inputs)
-        pred_fake = discriminator(gen_fakes, bodys)
+        gen_fakes = generator(textures, rois, cloths)
+        pred_fake = discriminator(gen_fakes, textures)
         loss_adv = criterion_GAN(pred_fake, valid_labels)
         # Pixel-wise loss
-        loss_pixel = criterion_pixelwise(gen_fakes, targets)
+        loss_pixel = criterion_pixelwise(gen_fakes, cloths)
 
         # Total loss
         loss_warp = loss_pixel + args.adversarial_weight * loss_adv
@@ -301,11 +318,11 @@ for epoch in tqdm(
         optimizer_D.zero_grad()
 
         # Real loss
-        pred_real = discriminator(targets, bodys)
+        pred_real = discriminator(cloths, textures)
         loss_real = criterion_GAN(pred_real, valid_labels)
 
         # Fake loss
-        pred_fake = discriminator(gen_fakes.detach(), bodys)
+        pred_fake = discriminator(gen_fakes.detach(), textures)
         loss_fake = criterion_GAN(pred_fake, fake_labels)
 
         # Total loss
@@ -347,8 +364,8 @@ for epoch in tqdm(
             sample_images(epoch, batches_done)
 
         if (
-                args.checkpoint_interval != -1
-                and batches_done % args.checkpoint_interval == 0
+            args.checkpoint_interval != -1
+            and batches_done % args.checkpoint_interval == 0
         ):
             save_models(epoch, batches_done)
 

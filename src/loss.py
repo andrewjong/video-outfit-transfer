@@ -1,5 +1,7 @@
 import torch.nn.functional as F
 from torch import Tensor
+import torch.nn as nn
+import nn.Module
 from torch.nn.modules.loss import _WeightedLoss
 
 
@@ -30,3 +32,14 @@ class PerPixelCrossEntropyLoss(_WeightedLoss):
             weight=self.weight,
             ignore_index=self.ignore_index,
         )
+
+class FeatureLoss(nn.Module):
+    def __init__(self, feature_extractor):
+        # e.g. VGG
+        self.feature_extractor = feature_extractor
+
+    def forward(self, generated, actual):
+        generated_feat = self.feature_extractor(generated)
+        actual_feat = self.feature_extractor(actual)
+        pass
+
