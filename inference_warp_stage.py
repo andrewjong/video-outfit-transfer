@@ -57,6 +57,7 @@ generator = WarpModule(cloth_channels=3, dropout=0)
 generator.load_state_dict(
     torch.load(args.model, map_location=lambda storage, loc: storage)
 )
+generator.eval()
 if cuda:
     generator = generator.cuda()
 
