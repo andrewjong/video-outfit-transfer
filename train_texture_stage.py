@@ -3,23 +3,24 @@ Code modified from PyTorch-GAN:
 https://github.com/eriklindernoren/PyTorch-GAN/
 """
 import argparse
-import os
 import json
+import os
 from pprint import pprint
 
 import torch
 
 # from torchvision.utils import save_image
 import torchvision
+from torchvision import models
 from torchvision.utils import save_image
 from tqdm import tqdm
 
 import config
-from src.datasets import WarpDataset, TextureDataset
-from src.loss import PerPixelCrossEntropyLoss, FeatureLoss
+from src.datasets import TextureDataset
+from src.loss import L1FeatureLoss
+from src.loss import MultiLayerFeatureLoss
 from src.nets import Discriminator, weights_init_normal
 from src.texture_module import TextureModule
-from src.warp_module import WarpModule
 
 parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -158,17 +159,20 @@ with open(os.path.join(MODEL_DIR, "logs", "args.json"), "w") as f:
     json.dump(argparse_dict, f, indent=4)
 # Write progress header
 with open(os.path.join(MODEL_DIR, "logs", "train_log.csv"), "w") as f:
-    f.write("step,loss_D,loss_G,loss_pixel,loss_adversarial\n")
+    f.write(
+        "step,loss_D,loss_G,loss_texture,loss_feature_l1,loss_mlf," "loss_adversarial\n"
+    )
 
 
 ###############################
 # Model, loss, optimizer setup
 ###############################
+feature_extractor = models.vgg19(pretrained=True)
 
 # Loss functions
 criterion_GAN = torch.nn.BCELoss()  # binary cross entropy
-criterion_feature = FeatureLoss()
-criterion_pixelwise = PerPixelCrossEntropyLoss()
+criterion_l1_feat = L1FeatureLoss(feature_extractor)
+criterion_mlf = MultiLayerFeatureLoss(feature_extractor)
 
 # Initialize generator and discriminator
 generator = TextureModule(texture_channels=args.texture_channels, dropout=args.dropout)
@@ -176,10 +180,10 @@ generator = TextureModule(texture_channels=args.texture_channels, dropout=args.d
 discriminator = Discriminator(in_channels=args.texture_channels + 3)
 
 if cuda:
-    generator = generator.cuda()
-    discriminator = discriminator.cuda()
+    generator.cuda()
+    discriminator.cuda()
     criterion_GAN.cuda()
-    criterion_pixelwise.cuda()
+    criterion_l1_feat.cuda()
 
 # only load weights if retraining
 if args.epoch != 0:
@@ -277,6 +281,8 @@ def save_models(epoch, batches_done):
 # Tensor type
 Tensor = torch.cuda.FloatTensor if cuda else torch.FloatTensor
 
+# Train Loop
+
 for epoch in tqdm(
     range(args.epoch, args.n_epochs), desc="Completed Epochs", unit="epoch"
 ):
@@ -301,13 +307,14 @@ for epoch in tqdm(
         gen_fakes = generator(textures, rois, cloths)
         pred_fake = discriminator(gen_fakes, textures)
         loss_adv = criterion_GAN(pred_fake, valid_labels)
-        # Pixel-wise loss
-        loss_pixel = criterion_pixelwise(gen_fakes, cloths)
+
+        loss_f1 = criterion_l1_feat(gen_fakes, textures)
+        loss_mlf = criterion_mlf(gen_fakes, textures)
 
         # Total loss
-        loss_warp = loss_pixel + args.adversarial_weight * loss_adv
+        loss_texture = loss_f1 + loss_mlf + loss_adv
 
-        loss_warp.backward()
+        loss_texture.backward()
 
         optimizer_G.step()
 
@@ -318,7 +325,7 @@ for epoch in tqdm(
         optimizer_D.zero_grad()
 
         # Real loss
-        pred_real = discriminator(cloths, textures)
+        pred_real = discriminator(gen_fakes, textures)
         loss_real = criterion_GAN(pred_real, valid_labels)
 
         # Fake loss
@@ -336,8 +343,9 @@ for epoch in tqdm(
         # --------------
         # Print log
         batch.set_description(
-            f"[D loss: {loss_D.item():3f}] [G loss: {loss_warp.item():.3f}, "
-            + f"pixel: {loss_pixel.item():.3f}, adv: {loss_adv.item():.3f}]"
+            f"[D loss: {loss_D.item():3f}] [G loss: {loss_texture.item():.3f}, "
+            f"f1: {loss_f1.item():.3f}, mlf: {loss_mlf.item():.3f}, "
+            f"adv: {loss_adv.item():.3f}]"
         )
 
         # Save log to file
@@ -348,8 +356,9 @@ for epoch in tqdm(
                     (
                         str(batches_done),
                         str(loss_D.item()),
-                        str(loss_warp.item()),
-                        str(loss_pixel.item()),
+                        str(loss_texture.item()),
+                        str(loss_f1.item()),
+                        str(loss_mlf.item()),
                         str(loss_adv.item()),
                     )
                 )
@@ -373,7 +382,7 @@ for epoch in tqdm(
         # End train if starts to destabilize
         # ------------------------------
         # numbers determined experimentally
-        if loss_D < 0.05 or loss_warp > 3:
+        if loss_D < 0.05 or loss_texture > 3:
             print(
                 "Loss_D is less than 0.05 or loss_warp > 3!",
                 "Saving models and ending train to prevent destabilization.",
