@@ -1,30 +1,21 @@
 from abc import ABC
 
+import torch.nn as nn
 import torch.nn.functional as F
 from torch import Tensor
-import torch.nn as nn
-import nn.Module
 from torch.nn.modules.loss import _WeightedLoss
 
 
 class PerPixelCrossEntropyLoss(_WeightedLoss):
-    def __init__(
-        self,
-        weight=None,
-        size_average=None,
-        ignore_index=-100,
-        reduce=None
-    ):
-        super(PerPixelCrossEntropyLoss, self).__init__(
-            weight, size_average, reduce
-        )
+    def __init__(self, weight=None, size_average=None, ignore_index=-100, reduce=None):
+        super(PerPixelCrossEntropyLoss, self).__init__(weight, size_average, reduce)
         self.ignore_index = ignore_index
 
     def forward(self, input: Tensor, target: Tensor):
         b, c, h, w, = input.shape
         # transform our tensors into a shape that that cross_entropy understands
         input_unraveled = input.view((b, c, h * w))
-        target_unraveled = target.view((b, c, h*w))
+        target_unraveled = target.view((b, c, h * w))
         # argmax of the channels is the correct label
         target_labels = target_unraveled.argmax(1)
 
@@ -38,7 +29,10 @@ class PerPixelCrossEntropyLoss(_WeightedLoss):
 
 class FeatureLoss(ABC, nn.Module):
     def __init__(self, feature_extractor):
-        self.feature_extractor = feature_extractor
+        super().__init__()
+        # set to eval mode to disable dropout and such
+        self.feature_extractor = feature_extractor.eval()
+
 
 class L1FeatureLoss(FeatureLoss):
     def __init__(self, feature_extractor):
@@ -52,17 +46,54 @@ class L1FeatureLoss(FeatureLoss):
         loss = self.loss_fn(generated_feat, actual_feat)
         return loss
 
-class MultiLayerFeatureLoss(nn.Module):
-    def __init__(self, feature_extractor, num_layers=3):
+
+class MultiLayerFeatureLoss(FeatureLoss):
+    """
+    Computes the feature loss with the last n layers of a deep feature extractor.
+    """
+    def __init__(self, feature_extractor, loss_fn=nn.L1Loss(), num_layers=3):
+        """
+
+        :param feature_extractor: an pretrained model, i.e. resnet18(), vgg19()
+        :param loss_fn: an initialized loss function
+        :param num_layers: number of layers from the end to keep. e.g. 3 will compute
+        the loss using the last 3 layers of the feature extractor network
+        """
         # e.g. VGG
-        self.feature_extractor = feature_extractor
+        super().__init__(feature_extractor)
+
+        features = list(feature_extractor.features)
+        self.num_layers = num_layers
+        self.loss_fn = loss_fn
+
         self.layer_weights = [i + 1 / num_layers for i in range(num_layers)]
 
+        self.features = nn.ModuleList(features).eval()
+
+        start = len(self.features) - num_layers
+        end = len(self.features)
+        self.layers_to_keep = {i for i in range(start, end)}
+
+    def extract_intermediate_layers(self, x):
+        """
+        Extracts features of intermediate layers using the feature extractor
+        :param x: the input
+        :return:
+        """
+        results = []
+        for ii, model in enumerate(self.features):
+            x = model(x)
+            if ii in self.layers_to_keep:
+                results.append(x)
+
+        return results
+
     def forward(self, generated, actual):
-        generated_feat = self.feature_extractor(generated)
-        actual_feat = self.feature_extractor(actual)
-        # TODO: stuck on how to implement layer weights
-        # maybe this will help: https://forums.fast.ai/t/pytorch-best-way-to-get-at-intermediate-layers-in-vgg-and-resnet/5707/2
+        generated_feat_list = self.extract_intermediate_layers(generated)
+        actual_feat_list = self.extract_intermediate_layers(actual)
+        total_loss = 0
 
-        pass
+        for i, w in enumerate(self.layer_weights):
+            total_loss += w * self.loss_fn(generated_feat_list[i], actual_feat_list[i])
 
+        return total_loss
