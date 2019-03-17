@@ -1,4 +1,5 @@
 .vscode
+lib
 reference
 .idea
 *.pth
