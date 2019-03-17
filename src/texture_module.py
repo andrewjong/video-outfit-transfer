@@ -46,9 +46,14 @@ class TextureModule(nn.Module):
         rois = rois.view(-1, 5)
         rois[:, 0] = rois[:, 0] - rois[0, 0]
         pooled_rois = self.roi_align(input_tex, rois)
+        batch_size = int(pooled_rois.shape[0] / NUM_ROI)
+        pooled_rois = pooled_rois.view(
+            batch_size, -1, pooled_rois.shape[2], pooled_rois.shape[3]
+        )
+
         encoded_tex = self.encode(pooled_rois)
 
-        scale_factor = input_tex.shape[1] / encoded_tex.shape[1]
+        scale_factor = input_tex.shape[2] / encoded_tex.shape[2]
         upsampled_tex = nn.functional.interpolate(
             encoded_tex, scale_factor=scale_factor
         )
