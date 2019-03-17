@@ -1,5 +1,6 @@
 import torch
 import sys
+
 sys.path.append("/home/remoteuser/faster-rcnn.pytorch/lib")
 from model.roi_layers import ROIAlign
 from torch import nn
@@ -16,11 +17,11 @@ class TextureModule(nn.Module):
             output_size=(128, 128), spatial_scale=1, sampling_ratio=1
         )
 
-        channels = NUM_ROI * texture_channels
+        channels = texture_channels * NUM_ROI
         self.encode = UNetDown(channels, channels)
 
         # UNET
-        self.down_1 = UNetDown(channels, 64, normalize=False)
+        self.down_1 = UNetDown(channels + texture_channels, 64, normalize=False)
         self.down_2 = UNetDown(64, 128)
         self.down_3 = UNetDown(128, 256)
         self.down_4 = UNetDown(256, 512, dropout=dropout)
