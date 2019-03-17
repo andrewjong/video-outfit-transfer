@@ -229,7 +229,7 @@ input_transform = torchvision.transforms.Compose(
     )
 )
 texture_dataset = TextureDataset(
-    args.texture_dir, args.rois_db, args.clothing_dir, config.CROP_BOUNDS
+    args.texture_dir, args.rois_db, args.clothing_dir, crop_bounds=config.CROP_BOUNDS
 )
 dataloader = torch.utils.data.DataLoader(
     texture_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
