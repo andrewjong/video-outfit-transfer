@@ -40,6 +40,10 @@ class TextureModule(nn.Module):
         )
 
     def forward(self, input_tex, rois, cloth):
+        # view rois as -1 5 because they have an extra "batch" dimension. but
+        # roi_align api just expects a single rowsxcoords tensor
+        rois = rois.view(-1, 5)
+        rois[:, 0] = rois[:, 0] - rois[0, 0]
         pooled_rois = self.roi_align(input_tex, rois)
         encoded_tex = self.encode(pooled_rois)
 
