@@ -268,8 +268,8 @@ def sample_images(epoch, batches_done):
         textures = textures.cuda()
         rois = rois.cuda()
         clothing = clothing.cuda()
-    fakes = generator(textures, rois)
-    img_sample = torch.cat((textures.data, rois.data, fakes.data, clothing.data), -2)
+    fakes = generator(textures, rois, clothing)
+    img_sample = torch.cat((clothing.data, textures.data, fakes.data), -2)
     save_image(
         img_sample,
         os.path.join(OUT_DIR, f"{epoch:02d}_{batches_done:05d}.png"),
