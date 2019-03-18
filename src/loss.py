@@ -49,7 +49,6 @@ class L1FeatureLoss(FeatureLoss):
 
     def forward(self, generated, actual):
         generated, actual = self.downsize(generated, actual)
-        print(generated.shape, actual.shape)
         generated_feat = self.feature_extractor(generated.detach())
         actual_feat = self.feature_extractor(actual.detach())
 
