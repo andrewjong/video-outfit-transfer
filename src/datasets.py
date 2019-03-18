@@ -208,7 +208,7 @@ class WarpDataset(Dataset):
 # TODO: lot of duplicated code. have to optimize this
 class TextureDataset(Dataset):
     def __init__(
-        self, texture_dir, rois_db, clothing_dir, min_offset=100, crop_bounds=None
+        self, texture_dir, rois_db, clothing_dir, crop_bounds=None
     ):
         """
         Strategy:
@@ -233,32 +233,7 @@ class TextureDataset(Dataset):
         self.rois_df = rois_df.replace("None", 0).astype(np.float32)
         self.clothing_dir = clothing_dir
 
-        self.min_offset = min_offset
         self.crop_bounds = crop_bounds
-
-    def _get_random_texture(self, index):
-        """
-        Note, this implementation isn't perfect, but should be good enough for now (
-        we're on a deadline).
-
-        Unaccounted corner cases: index == 0 or index == max-index
-        :param index:
-        :return:
-        """
-        min_thresh = index - self.min_offset
-        max_thresh = index + self.min_offset + 1  # + 1 so that
-        # make sure we're not out-of-bounds
-        if min_thresh < 0:
-            min_thresh = 0
-        if max_thresh >= len(self.texture_files):
-            max_thresh = len(self.texture_files) - 1
-
-        # our valid set
-        valid_choices = (
-            self.texture_files[:min_thresh] + self.texture_files[max_thresh:]
-        )
-
-        return random.choice(valid_choices)
 
     def get_matching_file(self, fname, dir, ext):
         """
