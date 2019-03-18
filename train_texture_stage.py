@@ -5,6 +5,7 @@ https://github.com/eriklindernoren/PyTorch-GAN/
 import argparse
 import json
 import os
+from glob import glob
 from pprint import pprint
 
 import torch
@@ -198,12 +199,15 @@ if cuda:
 
 # only load weights if retraining
 if args.epoch != 0:
-    pass
+    matching_epoch_files = glob(os.path.join(args.save_dir, args.dataset_name, f"generator_{args.epoch:02d}*"))
+    matching_epoch_files = [os.path.basename(f) for f in matching_epoch_files]
+    start_of_epoch = min(matching_epoch_files, key=lambda f: int(f.split("_")[1]))[10:]
+
     # Load pretrained models
     generator.load_state_dict(
         torch.load(
             os.path.join(
-                args.save_dir, args.dataset_name, f"generator_{args.epoch}_00000.pth"
+                args.save_dir, args.dataset_name, f"generator_{start_of_epoch}"
             )
         )
     )
@@ -212,7 +216,7 @@ if args.epoch != 0:
             os.path.join(
                 args.save_dir,
                 args.dataset_name,
-                f"discriminator_{args.epoch}_00000.pth",
+                f"discriminator_{start_of_epoch}",
             )
         )
     )
