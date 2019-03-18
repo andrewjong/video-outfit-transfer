@@ -8,6 +8,7 @@ import os
 from pprint import pprint
 
 import torch
+
 # from torchvision.utils import save_image
 from torchvision import models
 from torchvision.utils import save_image
@@ -60,6 +61,11 @@ parser.add_argument(
     "--save_dir",
     default=os.path.join("models", "texture_stage"),
     help="Where to store saved model weights",
+)
+parser.add_argument(
+    "--resume_latest",
+    action="store_true",
+    help="resume training from the latest saved epoch",
 )
 parser.add_argument("--epoch", type=int, default=0, help="epoch to start training from")
 parser.add_argument(
@@ -129,6 +135,14 @@ args = parser.parse_args()
 argparse_dict = vars(args)
 pprint(argparse_dict)
 
+# set args.epoch to resume
+if args.resume_latest:
+    saved_models = os.listdir(os.path.join(args.save_dir, args.dataset_name))
+    gen_files = filter(lambda filename: "generator" in filename, saved_models)
+    epochs = [int(f.split("_")[1]) for f in gen_files]
+    latest_epoch = max(epochs)
+    args.epoch = latest_epoch
+
 #######################
 # GPU setup
 #######################
@@ -168,8 +182,8 @@ feature_extractor = models.vgg19(pretrained=True)
 
 # Loss functions
 criterion_GAN = torch.nn.BCELoss()  # binary cross entropy
-criterion_l1_feat = L1FeatureLoss(feature_extractor, scale=224/512)
-criterion_mlf = MultiLayerFeatureLoss(feature_extractor, scale=224/512)
+criterion_l1_feat = L1FeatureLoss(feature_extractor, scale=224 / 512)
+criterion_mlf = MultiLayerFeatureLoss(feature_extractor, scale=224 / 512)
 
 # Initialize generator and discriminator
 generator = TextureModule(texture_channels=args.texture_channels, dropout=args.dropout)
@@ -185,21 +199,23 @@ if cuda:
 # only load weights if retraining
 if args.epoch != 0:
     pass
-    # # Load pretrained models
-    # generator.load_state_dict(
-    #     torch.load(
-    #         os.path.join(
-    #             args.save_dir, args.dataset_name, f"generator_{args.epoch}.pth"
-    #         )
-    #     )
-    # )
-    # discriminator.load_state_dict(
-    #     torch.load(
-    #         os.path.join(
-    #             args.save_dir, args.dataset_name, f"discriminator_{args.epoch}.pth"
-    #         )
-    #     )
-    # )
+    # Load pretrained models
+    generator.load_state_dict(
+        torch.load(
+            os.path.join(
+                args.save_dir, args.dataset_name, f"generator_{args.epoch}_00000.pth"
+            )
+        )
+    )
+    discriminator.load_state_dict(
+        torch.load(
+            os.path.join(
+                args.save_dir,
+                args.dataset_name,
+                f"discriminator_{args.epoch}_00000.pth",
+            )
+        )
+    )
 else:  # if first epoch,
     # initialize weights
     generator.apply(weights_init_normal)
@@ -379,14 +395,11 @@ for epoch in tqdm(
         # End train if starts to destabilize
         # ------------------------------
         # numbers determined experimentally
-        # if loss_D < 0.05 or loss_texture > 3:
-        #     print(
-        #         "Loss_D is less than 0.05 or loss_texture > 3!",
-        #         "Saving models and ending train to prevent destabilization.",
-        #     )
-        #     sample_images(-1, -1)
-        #     save_models(-1, -1)
-        #     break
-    else:
-        continue
-    break
+        if loss_D < 0.05 or loss_texture > 5:
+            print(
+                "Loss_D is less than 0.05 or loss_texture > 5!",
+                "Saving models and ending train to prevent destabilization.",
+            )
+            sample_images(-1, -1)
+            save_models(-1, -1)
+            break
