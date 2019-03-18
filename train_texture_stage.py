@@ -21,7 +21,7 @@ from src.texture_module import TextureModule
 
 parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    description="Train the warp stage.",
+    description="Train the texture stage.",
 )
 parser.add_argument(
     "-t",
@@ -53,12 +53,12 @@ parser.add_argument(
 parser.add_argument(
     "-o",
     "--out_dir",
-    default=os.path.join("output", "warp_stage"),
+    default=os.path.join("output", "texture_stage"),
     help="Output folder path",
 )
 parser.add_argument(
     "--save_dir",
-    default=os.path.join("models", "warp_stage"),
+    default=os.path.join("models", "texture_stage"),
     help="Where to store saved model weights",
 )
 parser.add_argument("--epoch", type=int, default=0, help="epoch to start training from")
@@ -70,7 +70,7 @@ parser.add_argument(
     "--adversarial_weight",
     type=float,
     default=0.2,
-    help="Factor to scale adversarial loss contribution to warp loss total",
+    help="Factor to scale adversarial loss contribution to texture  loss total",
 )
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument(
@@ -311,7 +311,7 @@ for epoch in tqdm(
         # Total loss
         loss_texture = loss_f1 + loss_mlf + loss_adv
 
-        loss_texture.backward()
+        loss_texture.backward(retain_graph=True)
 
         optimizer_G.step()
 
@@ -379,14 +379,14 @@ for epoch in tqdm(
         # End train if starts to destabilize
         # ------------------------------
         # numbers determined experimentally
-        if loss_D < 0.05 or loss_texture > 3:
-            print(
-                "Loss_D is less than 0.05 or loss_warp > 3!",
-                "Saving models and ending train to prevent destabilization.",
-            )
-            sample_images(-1, -1)
-            save_models(-1, -1)
-            break
+        # if loss_D < 0.05 or loss_texture > 3:
+        #     print(
+        #         "Loss_D is less than 0.05 or loss_texture > 3!",
+        #         "Saving models and ending train to prevent destabilization.",
+        #     )
+        #     sample_images(-1, -1)
+        #     save_models(-1, -1)
+        #     break
     else:
         continue
     break
