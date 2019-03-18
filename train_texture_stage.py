@@ -8,17 +8,14 @@ import os
 from pprint import pprint
 
 import torch
-
 # from torchvision.utils import save_image
-import torchvision
 from torchvision import models
 from torchvision.utils import save_image
 from tqdm import tqdm
 
 import config
 from src.datasets import TextureDataset
-from src.loss import L1FeatureLoss
-from src.loss import MultiLayerFeatureLoss
+from src.loss import L1FeatureLoss, MultiLayerFeatureLoss
 from src.nets import Discriminator, weights_init_normal
 from src.texture_module import TextureModule
 
@@ -171,8 +168,8 @@ feature_extractor = models.vgg19(pretrained=True)
 
 # Loss functions
 criterion_GAN = torch.nn.BCELoss()  # binary cross entropy
-criterion_l1_feat = L1FeatureLoss(feature_extractor)
-criterion_mlf = MultiLayerFeatureLoss(feature_extractor)
+criterion_l1_feat = L1FeatureLoss(feature_extractor, scale=224/512)
+criterion_mlf = MultiLayerFeatureLoss(feature_extractor, scale=224/512)
 
 # Initialize generator and discriminator
 generator = TextureModule(texture_channels=args.texture_channels, dropout=args.dropout)
@@ -220,14 +217,14 @@ optimizer_D = torch.optim.Adam(
 ###############################
 # Datasets and loaders
 ###############################
-input_transform = torchvision.transforms.Compose(
-    (
-        torchvision.transforms.RandomHorizontalFlip(),
-        torchvision.transforms.RandomAffine(
-            degrees=20, translate=(0.4, 0.4), scale=(0.75, 1.25), shear=(-10, 10)
-        ),
-    )
-)
+# input_transform = torchvision.transforms.Compose(
+#     (
+#         torchvision.transforms.RandomHorizontalFlip(),
+#         torchvision.transforms.RandomAffine(
+#             degrees=20, translate=(0.4, 0.4), scale=(0.75, 1.25), shear=(-10, 10)
+#         ),
+#     )
+# )
 texture_dataset = TextureDataset(
     args.texture_dir, args.rois_db, args.clothing_dir, crop_bounds=config.CROP_BOUNDS
 )
@@ -294,8 +291,8 @@ for epoch in tqdm(
             cloths = cloths.cuda()
 
         # Adversarial ground truths
-        valid_labels = torch.ones(cloths.shape[0]).type(Tensor)
-        fake_labels = torch.zeros(cloths.shape[0]).type(Tensor)
+        valid_labels = torch.ones(textures.shape[0]).type(Tensor)
+        fake_labels = torch.zeros(textures.shape[0]).type(Tensor)
 
         # ------------------
         #  Train Generators
