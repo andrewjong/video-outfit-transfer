@@ -309,7 +309,7 @@ for epoch in tqdm(
         loss_mlf = criterion_mlf(gen_fakes, textures)
 
         # Total loss
-        loss_texture = loss_f1 + loss_mlf + loss_adv
+        loss_texture = 0.5 * loss_f1 + loss_mlf + loss_adv
 
         loss_texture.backward(retain_graph=True)
 
