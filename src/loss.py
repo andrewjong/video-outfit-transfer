@@ -28,18 +28,28 @@ class PerPixelCrossEntropyLoss(_WeightedLoss):
 
 
 class FeatureLoss(ABC, nn.Module):
-    def __init__(self, feature_extractor):
+    def __init__(self, feature_extractor, scale=224/512):
         super().__init__()
         # set to eval mode to disable dropout and such
         self.feature_extractor = feature_extractor.eval()
+        self.scale = scale
+
+    def downsize(self, *inputs):
+        outs = []
+        for a in inputs:
+            outs.append(nn.functional.interpolate(a, scale_factor=self.scale))
+
+        return tuple(outs)
 
 
 class L1FeatureLoss(FeatureLoss):
-    def __init__(self, feature_extractor):
-        super().__init__(feature_extractor)
+    def __init__(self, feature_extractor, scale):
+        super().__init__(feature_extractor, scale)
         self.loss_fn = nn.L1Loss()
 
     def forward(self, generated, actual):
+        generated, actual = self.downsize(generated, actual)
+        print(generated.shape, actual.shape)
         generated_feat = self.feature_extractor(generated.detach())
         actual_feat = self.feature_extractor(actual.detach())
 
@@ -51,7 +61,7 @@ class MultiLayerFeatureLoss(FeatureLoss):
     """
     Computes the feature loss with the last n layers of a deep feature extractor.
     """
-    def __init__(self, feature_extractor, loss_fn=nn.L1Loss(), num_layers=3):
+    def __init__(self, feature_extractor, scale, loss_fn=nn.L1Loss(), num_layers=3):
         """
 
         :param feature_extractor: an pretrained model, i.e. resnet18(), vgg19()
@@ -60,7 +70,7 @@ class MultiLayerFeatureLoss(FeatureLoss):
         the loss using the last 3 layers of the feature extractor network
         """
         # e.g. VGG
-        super().__init__(feature_extractor)
+        super().__init__(feature_extractor, scale)
 
         features = list(feature_extractor.features)
         self.num_layers = num_layers
@@ -89,6 +99,7 @@ class MultiLayerFeatureLoss(FeatureLoss):
         return results
 
     def forward(self, generated, actual):
+        generated, actual = self.downsize(generated, actual)
         generated_feat_list = self.extract_intermediate_layers(generated)
         actual_feat_list = self.extract_intermediate_layers(actual)
         total_loss = 0
