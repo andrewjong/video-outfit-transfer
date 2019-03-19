@@ -272,9 +272,6 @@ class TextureDataset(Dataset):
         cloth_file = self.get_matching_file(texture_file, self.clothing_dir, ".png")
         cloth_img = Image.open(cloth_file)
 
-        if random.random() > 0.5:
-            cloth_img = t_func.hflip(cloth_img)
-
         texture = to_tensor(texture_img)
         # TODO: batch is incorrect after batch_size. e.g. if batch size is 2,
         # index from 2 onward won't work
