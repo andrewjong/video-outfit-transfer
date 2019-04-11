@@ -1,7 +1,7 @@
 import torch
 import sys
 
-sys.path.append("/home/remoteuser/faster-rcnn.pytorch/lib")
+sys.path.append("../lib")
 from model.roi_layers import ROIAlign
 from torch import nn
 

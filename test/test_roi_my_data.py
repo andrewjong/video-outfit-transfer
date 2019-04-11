@@ -1,7 +1,7 @@
 import sys
 
 
-sys.path.append("/home/remoteuser/faster-rcnn.pytorch/lib")
+sys.path.append("../lib")
 import torch
 from model.roi_layers import ROIAlign
 from src.datasets import TextureDataset
