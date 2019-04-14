@@ -38,7 +38,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--save_dir",
-    default=os.path.join("models", "warp_stage"),
+    default=os.path.join("models", "wgan_gp"),
     help="Where to store saved model weights",
 )
 parser.add_argument(
