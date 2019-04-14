@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 import os
 import numpy as np
 import tqdm
@@ -24,10 +25,10 @@ os.makedirs("images", exist_ok=True)
 
 parser = argparse.ArgumentParser(argparse.ArgumentDefaultsHelpFormatter)
 parser.add_argument(
-    "-d", "--dataset", type=int, default=200, help="path to data to generate training"
+    "-d", "--dataset", help="path to data to generate training"
 )
 parser.add_argument(
-    "--exp", "--experiment", default="default_experiment", help="name of the experiment"
+    "-e", "--experiment", default="default_experiment", help="name of the experiment"
 )
 parser.add_argument(
     "-o",
@@ -38,7 +39,7 @@ parser.add_argument(
 parser.add_argument(
     "--n_epochs", type=int, default=200, help="number of epochs of training"
 )
-parser.add_argument("--batch_size", type=int, default=64, help="size of the batches")
+parser.add_argument("--batch_size", type=int, default=2, help="size of the batches")
 parser.add_argument("--lr", type=float, default=0.0002, help="adam: learning rate")
 parser.add_argument(
     "--b1",
@@ -78,7 +79,7 @@ parser.add_argument(
     help="lower and upper clip value for disc. weights",
 )
 parser.add_argument(
-    "--gp", "--gradient_penalty", type=float, default=10, help="gradient penalty"
+    "--lambda_gp",  type=float, default=10, help="gradient penalty"
 )
 parser.add_argument(
     "--sample_interval", type=int, default=400, help="interval betwen image samples"
@@ -87,7 +88,8 @@ args = parser.parse_args()
 print(args)
 # save to file
 args_dump_file = os.path.join(args.out_dir, args.experiment, "args.json")
-with open(args_dump_file) as f:
+os.makedirs(os.path.dirname(args_dump_file), exist_ok=True)
+with open(args_dump_file, "w") as f:
     json.dump(vars(args), f)
 
 
@@ -117,8 +119,10 @@ class Generator(nn.Module):
         )
 
     def forward(self, z):
+        # print("In gan.forward(), zshape=", z.shape)
         img = self.model(z)
         img = img.view(img.shape[0], *img_shape)
+        # print("In gan.forward(): img_shape=", img.shape)
         return img
 
 
@@ -154,6 +158,7 @@ dataloader = torch.utils.data.DataLoader(
         args.dataset,
         transform=transforms.Compose(
             [
+                transforms.Resize(256),
                 transforms.CenterCrop(img_shape[1]),
                 transforms.ToTensor(),
                 transforms.Normalize([0.5, 0.5, 0.5], [0.5, 0.5, 0.5]),
@@ -162,6 +167,7 @@ dataloader = torch.utils.data.DataLoader(
     ),
     batch_size=args.batch_size,
     shuffle=True,
+    drop_last=True
 )
 
 # Optimizers
@@ -200,13 +206,13 @@ def compute_gradient_penalty(D, real_samples, fake_samples):
 
 
 logfile = os.path.join(args.out_dir, args.experiment, "train.csv")
-with open(logfile) as f:
-    f.write("epoch,batch,dloss,gloss")
+with open(logfile, "w") as f:
+    f.write("epoch,batch,dloss,gloss\n")
 
 
 def log_progress(*args):
-    with open(logfile) as f:
-        f.write(",".join(args))
+    with open(logfile, "a") as f:
+        f.write(",".join((str(a) for a in args)) + "\n")
 
 
 # ----------
@@ -216,7 +222,7 @@ def log_progress(*args):
 batches_done = 0
 for epoch in tqdm.trange(args.n_epochs, unit="epoch"):
     pbar = tqdm.tqdm(dataloader, unit="batch", leave=False)
-    for i, (imgs, _) in pbar:
+    for i, (imgs, _) in enumerate(pbar):
 
         # Configure input
         real_imgs = Variable(imgs.type(Tensor))
@@ -245,7 +251,7 @@ for epoch in tqdm.trange(args.n_epochs, unit="epoch"):
         d_loss = (
             -torch.mean(real_validity)
             + torch.mean(fake_validity)
-            + args.gradient_penalty * gradient_penalty
+            + args.lambda_gp * gradient_penalty
         )
 
         d_loss.backward()
@@ -270,7 +276,7 @@ for epoch in tqdm.trange(args.n_epochs, unit="epoch"):
             g_loss.backward()
             optimizer_G.step()
 
-            log_progress(epoch, i, d_loss.item(), g_loss.item())
+            log_progress(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), epoch, i, d_loss.item(), g_loss.item())
             pbar.set_description(
                 f"dloss: {d_loss.item():.4f}, gloss: {g_loss.item():.4f}"
             )
