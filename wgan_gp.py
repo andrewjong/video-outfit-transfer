@@ -107,10 +107,10 @@ os.makedirs(OUT_DIR, exist_ok=True)
 MODEL_DIR = (
     os.path.join(args.save_dir, args.experiment) if args.experiment else args.save_dir
 )
-os.makedirs(os.path.join(MODEL_DIR, "logs"), exist_ok=True)
+os.makedirs(MODEL_DIR, exist_ok=True)
 
 # Save arguments used
-with open(os.path.join(MODEL_DIR, "logs", "args.json"), "w") as f:
+with open(os.path.join(MODEL_DIR, "args.json"), "w") as f:
     json.dump(vars(args), f, indent=4)
 # Write progress header
 logfile = os.path.join(MODEL_DIR, "train.csv")
