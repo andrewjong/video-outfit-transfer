@@ -21,12 +21,12 @@ import torch.nn.functional as F
 import torch.autograd as autograd
 import torch
 
+from utils.save import save_models
+
 os.makedirs("images", exist_ok=True)
 
 parser = argparse.ArgumentParser(argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument(
-    "-d", "--dataset", help="path to data to generate training"
-)
+parser.add_argument("-d", "--dataset", help="path to data to generate training")
 parser.add_argument(
     "-e", "--experiment", default="default_experiment", help="name of the experiment"
 )
@@ -35,6 +35,11 @@ parser.add_argument(
     "--out_dir",
     default=os.path.join("output", "wgan_gp"),
     help="Output folder path",
+)
+parser.add_argument(
+    "--save_dir",
+    default=os.path.join("models", "warp_stage"),
+    help="Where to store saved model weights",
 )
 parser.add_argument(
     "--n_epochs", type=int, default=200, help="number of epochs of training"
@@ -78,19 +83,44 @@ parser.add_argument(
     default=0.01,
     help="lower and upper clip value for disc. weights",
 )
-parser.add_argument(
-    "--lambda_gp",  type=float, default=10, help="gradient penalty"
-)
+parser.add_argument("--lambda_gp", type=float, default=10, help="gradient penalty")
 parser.add_argument(
     "--sample_interval", type=int, default=400, help="interval betwen image samples"
 )
+parser.add_argument(
+    "--checkpoint_interval",
+    type=int,
+    default=10,
+    help="epoch interval between model checkpoints",
+)
 args = parser.parse_args()
 print(args)
-# save to file
-args_dump_file = os.path.join(args.out_dir, args.experiment, "args.json")
-os.makedirs(os.path.dirname(args_dump_file), exist_ok=True)
-with open(args_dump_file, "w") as f:
-    json.dump(vars(args), f)
+
+
+#######################
+# Make output folders
+#######################
+OUT_DIR = (
+    os.path.join(args.out_dir, args.experiment) if args.experiment else args.out_dir
+)
+os.makedirs(OUT_DIR, exist_ok=True)
+MODEL_DIR = (
+    os.path.join(args.save_dir, args.experiment) if args.experiment else args.save_dir
+)
+os.makedirs(os.path.join(MODEL_DIR, "logs"), exist_ok=True)
+
+# Save arguments used
+with open(os.path.join(MODEL_DIR, "logs", "args.json"), "w") as f:
+    json.dump(vars(args), f, indent=4)
+# Write progress header
+logfile = os.path.join(MODEL_DIR, "train.csv")
+with open(logfile, "w") as f:
+    f.write("epoch,batch,d_loss,g_loss\n")
+
+
+def log_progress(*args):
+    with open(logfile, "a") as f:
+        f.write(",".join((str(a) for a in args)) + "\n")
 
 
 img_shape = (args.channels, args.img_size, args.img_size)
@@ -167,7 +197,7 @@ dataloader = torch.utils.data.DataLoader(
     ),
     batch_size=args.batch_size,
     shuffle=True,
-    drop_last=True
+    drop_last=True,
 )
 
 # Optimizers
@@ -203,16 +233,6 @@ def compute_gradient_penalty(D, real_samples, fake_samples):
     gradients = gradients.view(gradients.size(0), -1)
     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean()
     return gradient_penalty
-
-
-logfile = os.path.join(args.out_dir, args.experiment, "train.csv")
-with open(logfile, "w") as f:
-    f.write("epoch,batch,dloss,gloss\n")
-
-
-def log_progress(*args):
-    with open(logfile, "a") as f:
-        f.write(",".join((str(a) for a in args)) + "\n")
 
 
 # ----------
@@ -276,17 +296,32 @@ for epoch in tqdm.trange(args.n_epochs, unit="epoch"):
             g_loss.backward()
             optimizer_G.step()
 
-            log_progress(datetime.now().strftime("%Y-%m-%d %H:%M:%S"), epoch, i, d_loss.item(), g_loss.item())
+            log_progress(
+                datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                epoch,
+                i,
+                d_loss.item(),
+                g_loss.item(),
+            )
             pbar.set_description(
-                f"dloss: {d_loss.item():.4f}, gloss: {g_loss.item():.4f}"
+                f"d_loss: {d_loss.item():.4f}, g_loss: {g_loss.item():.4f}"
             )
 
             if batches_done % args.sample_interval == 0:
                 save_image(
                     fake_imgs.data[:25],
-                    os.path.join(args.out_dir, args.experiment, f"{batches_done}.png"),
+                    os.path.join(OUT_DIR, f"{batches_done}.png"),
                     nrow=5,
                     normalize=True,
                 )
 
             batches_done += args.n_critic
+
+    if epoch % args.checkpoint_interval == 0:
+        save_models(
+            MODEL_DIR,
+            epoch,
+            batches_done,
+            generator=generator,
+            discriminator=discriminator,
+        )
