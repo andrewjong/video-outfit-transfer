@@ -13,7 +13,7 @@ def save_models(dir, epoch, batches_done=None, **kwargs):
     """
     os.makedirs(dir, exist_ok=True)
     # Save model checkpoints
-    for name, model in kwargs:
+    for name, model in kwargs.items():
         fname = f"{name}_{epoch:02d}"
         if batches_done:
             fname += f"_{batches_done:05d}"
