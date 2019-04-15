@@ -5,4 +5,4 @@ Please see the
 [preprint paper](https://github.com/andrewjong/video-outfit-transfer/blob/master/Video_Outfit_Transfer_Preprint.pdf)
 for current progress.
 
-![alt-text][resources/poster.png]
+![alt-text](resources/poster.png)
