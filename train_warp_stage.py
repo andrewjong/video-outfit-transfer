@@ -13,6 +13,7 @@ import torch
 import torchvision
 from torchvision.utils import save_image
 from tqdm import tqdm
+from utils.save import save_models
 
 import config
 from src.datasets import WarpDataset
@@ -37,7 +38,7 @@ parser.add_argument(
     help="Path to folder containing clothing segmentation images (*.png or *.jpg)",
 )
 parser.add_argument(
-    "-d", "--dataset_name", default="", help="Name the dataset for output path"
+    "-e", "--experiment", default="", help="Name the dataset for output path"
 )
 parser.add_argument(
     "-o",
@@ -130,12 +131,12 @@ if cuda:
 # Make output folders
 #######################
 OUT_DIR = (
-    os.path.join(args.out_dir, args.dataset_name) if args.dataset_name else args.out_dir
+    os.path.join(args.out_dir, args.experiment) if args.experiment else args.out_dir
 )
 os.makedirs(OUT_DIR, exist_ok=True)
 MODEL_DIR = (
-    os.path.join(args.save_dir, args.dataset_name)
-    if args.dataset_name
+    os.path.join(args.save_dir, args.experiment)
+    if args.experiment
     else args.save_dir
 )
 os.makedirs(os.path.join(MODEL_DIR, "logs"), exist_ok=True)
@@ -174,14 +175,14 @@ if args.epoch != 0:
     # generator.load_state_dict(
     #     torch.load(
     #         os.path.join(
-    #             args.save_dir, args.dataset_name, f"generator_{args.epoch}.pth"
+    #             args.save_dir, args.experiment, f"generator_{args.epoch}.pth"
     #         )
     #     )
     # )
     # discriminator.load_state_dict(
     #     torch.load(
     #         os.path.join(
-    #             args.save_dir, args.dataset_name, f"discriminator_{args.epoch}.pth"
+    #             args.save_dir, args.experiment, f"discriminator_{args.epoch}.pth"
     #         )
     #     )
     # )
@@ -251,18 +252,6 @@ def sample_images(epoch, batches_done):
 ###############################
 # Training
 ###############################
-
-
-def save_models(epoch, batches_done):
-    # Save model checkpoints
-    torch.save(
-        generator.state_dict(),
-        os.path.join(MODEL_DIR, f"generator_{epoch:02d}_{batches_done:05d}.pth"),
-    )
-    torch.save(
-        discriminator.state_dict(),
-        os.path.join(MODEL_DIR, f"discriminator_{epoch:02d}_{batches_done:05d}.pth"),
-    )
 
 
 # Tensor type
@@ -358,7 +347,13 @@ for epoch in tqdm(
             args.checkpoint_interval != -1
             and batches_done % args.checkpoint_interval == 0
         ):
-            save_models(epoch, batches_done)
+            save_models(
+                MODEL_DIR,
+                epoch,
+                batches_done,
+                generator=generator,
+                discriminator=discriminator,
+            )
 
         # ------------------------------
         # End train if starts to destabilize
@@ -370,7 +365,9 @@ for epoch in tqdm(
                 "Saving models and ending train to prevent destabilization.",
             )
             sample_images(-1, -1)
-            save_models(-1, -1)
+            save_models(
+                MODEL_DIR, -1, -1, generator=generator, discriminator=discriminator
+            )
             break
     else:
         continue

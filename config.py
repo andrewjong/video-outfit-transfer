@@ -5,7 +5,7 @@ CROP_BOUNDS = (
     (14, 526),  # WIDTH (calculated by (540 - 512)/2, then centered  )
 )
 
-ROOT = "/home/remoteuser/outfit-transfer/data"
+ROOT = "data"
 
 ANDREW_TEXTURE = join(ROOT, "andrew/texture")
 ANDREW_ROIS = join(ROOT, "andrew/rois.csv")
