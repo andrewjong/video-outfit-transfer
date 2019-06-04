@@ -23,5 +23,25 @@ class BaseLearner(ABC):
         torch.backends.cudnn.benchmark = True
 
         self.loss_names = []
-        self.loss_names = []
+        self.model_names = []
 
+
+    @staticmethod
+    def modify_commandline_options(parser, is_train):
+        return parser
+
+    @abstractmethod
+    def set_input(self, input):
+        pass
+
+    @abstractmethod
+    def forward(self):
+        pass
+
+    @abstractmethod
+    def optimize_parameters(self):
+        pass
+
+    def setup(self, opt):
+        if self.is_train:
+            self.schedulers =
