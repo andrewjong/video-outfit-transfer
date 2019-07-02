@@ -9,6 +9,7 @@ from glob import glob
 import torchvision.transforms as transforms
 from scipy.sparse import load_npz
 import pandas as pd
+from datasets import WarpDataset, crop, crop_rois
 
 
 to_tensor = torchvision.transforms.ToTensor()
@@ -31,6 +32,7 @@ class TextureDataset(Dataset):
                  cloth_seg_root: str,
                  random_seed: int = None,
                  input_transform = None, # should default to swapnet transform?
+                 crop_bounds = None,
                  ext: str = '.npz'
                 ):
         if random_seed:
@@ -71,6 +73,11 @@ class TextureDataset(Dataset):
             
         rois = self.rois_df[self.rois_df['id'] == common_path].values
         rois_input_tensor = torch.from_numpy(rois)
+        
+        if self.crop_bounds:
+            texture = crop(texture, self.crop_bounds)
+            rois = crop_rois(rois, self.crop_bounds)
+            cloth = crop(cloth, self.crop_bounds)
         
         return img_input_tensor, rois_input_tensor, cloth_cs_input_tensor
         
