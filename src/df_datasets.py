@@ -52,6 +52,9 @@ def random_transform_functional(*args):
 
 
 def random_per_channel_transform_functional(transform_function):
+    """
+    :param transform_function: any torchvision transforms classes
+    """
     def transform(input_cloth_np) -> Tensor:
         """
         Randomly transform each of n_channels of input data.
@@ -62,9 +65,9 @@ def random_per_channel_transform_functional(transform_function):
         """
         print(input_cloth_np.shape)
         tform_input_cloth_np = np.zeros(shape=input_cloth_np.shape, dtype=input_cloth_np.dtype)
-        n_channels = input_cloth_np.shape[2]
+        n_channels = input_cloth_np.shape[0]
         for i in range(n_channels):
-            tform_input_cloth_np[:,:,i] = np.array(transform_function(Image.fromarray(input_cloth_np[:,:,i])))
+            tform_input_cloth_np[i] = np.array(transform_function(Image.fromarray(input_cloth_np[i])))
         return torch.from_numpy(tform_input_cloth_np)
     return transform
 
@@ -92,14 +95,15 @@ swapnet_per_channel_transform = random_per_channel_transform_functional(swapnet_
 
 def to_onehot_sparse_tensor(sp_matrix, n_labels):
     """
-    convert sparse scipy labels matrix to sparse onehot pt tensor
-    last dimension must be in range(n_labels)
+    convert sparse scipy labels matrix to sparse onehot pt tensor of size (n_labels,H,W)
+    :param sp_matrix: sparse 2d scipy matrix, with entries in range(n_labels)
+    :return: pt sparse tensor of size(n_labels,H,W)
     """
     sp_matrix = sp_matrix.tocoo()
-    indices = np.vstack((sp_matrix.row, sp_matrix.col, sp_matrix.data))
+    indices = np.vstack((sp_matrix.data, sp_matrix.row, sp_matrix.col))
     indices = torch.LongTensor(indices)
     values = torch.Tensor([1.0]*sp_matrix.nnz)
-    shape = sp_matrix.shape + (n_labels,)
+    shape = (n_labels,) + sp_matrix.shape
     return torch.sparse.FloatTensor(indices, values, torch.Size(shape))
     
 class WarpDataset(Dataset):
@@ -123,12 +127,8 @@ class WarpDataset(Dataset):
         :param cloth_seg_dir: path to directory containing cloth segmentation
         .npy files
         :param body_seg_dir: path to directory containing body segmentation image files
-        :param min_offset: minimum offset to select a random other cloth
-        segmentation. (default: 50; unless min_offset < number of cloth files,
-        then 0)
-        :param random_seed: seed for getting a random cloth seg image
         :param input_transform: transform for the random drawn cloth segmentation image.
-        Note, the transform must be able to operate on a HxWx19-channel tensor
+        NOTE this input_transform takes an ndarray instead of PIL Image
         """
         if random_seed:
             random.seed(random_seed)
@@ -167,10 +167,12 @@ class WarpDataset(Dataset):
     def _decompress_cloth_segment(self, fname, n_labels) -> torch.sparse.FloatTensor:
         """
         load cloth segmentation sparse matrix npz file
+        :return: sparse tensor of size(H,W,19)
         """
         data_sparse = load_npz(fname)
+        sparse_tensor = to_onehot_sparse_tensor(data_sparse, n_labels)
         
-        return to_onehot_sparse_tensor(data_sparse, n_labels)
+        return sparse_tensor
     
         
 
@@ -185,10 +187,10 @@ class WarpDataset(Dataset):
     def __getitem__(self, index) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Strategy:
-            Get a target cloth segmentation (.npy). Get the matching body
+            Get a target cloth segmentation (.npz). Get the matching body
             segmentation (.png)
             Choose a random starting cloth segmentation from a different frame_num
-            (.npy), and perform data augmention on each channel of that frame_num
+            (.npz), and perform data augmention on each channel of that frame_num
 
         :param index:
         :return: input body segmentation, input cloth segmentation, target cloth
@@ -268,6 +270,7 @@ class TextureDataset(Dataset):
     def _decompress_cloth_segment(self, fname, n_labels) -> torch.sparse.FloatTensor:
         """
         load cloth segmentation sparse matrix npz file
+        :return: sparse tensor of size(H,W,19)
         """
         data_sparse = load_npz(fname)
         
