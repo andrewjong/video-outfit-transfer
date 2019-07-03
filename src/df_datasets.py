@@ -23,6 +23,9 @@ swapnet_random_transform = random_transform(transforms.RandomAffine(degrees=30, 
                                             transforms.RandomVerticalFlip(0.3),
                                            )
 
+def 
+
+# def random_per_channel_transform()
 
 class WarpDataset(Dataset):
     def __init__(
@@ -62,7 +65,7 @@ class WarpDataset(Dataset):
         # TODO: cleaner way to get rid of prefix dir
         self.clothing_seg_dir = clothing_seg_dir
         os.chdir(self.clothing_seg_dir)
-        self.clothing_seg_files = glob(os.path.join(self.clothing_seg_dir, '**/*'+self.cloth_ext), recursive=True)
+        self.clothing_seg_files = glob('**/*'+self.cloth_ext), recursive=True)
         os.chdir('../'*(len(self.clothing_seg_dir.split('/'))))
         
         self.body_seg_dir = body_seg_dir
@@ -86,6 +89,21 @@ class WarpDataset(Dataset):
             file name with new extension
         """
         return fname[:-len(ext1)] + ext2
+    
+    def _load_by_ext(self, fname, ext):
+        """
+        Choose load method according to extension 
+        
+        Return:
+            loaded data as PIL Image
+        """
+        if ext in ['.jpg', '.png']:
+            img = Image.open(fname)
+        elif ext == '.npz':
+            img_np = load_npz(fname).todense()
+            img = Image.fromarray(img_np)
+        return img
+        
 
     def __len__(self):
         """
@@ -112,19 +130,14 @@ class WarpDataset(Dataset):
 
         # the target clothing segmentation
         target_cloth_file = self.clothing_seg_files[index]
-        target_cloth_np = load_npz(target_cloth_file).todense()
-        target_cloth_img = Image.open(os.path.join(self.clothing_seg_dir, target_cs_file))
+        target_cloth_img = self._load_by_ext(os.path.join(self.clothing_seg_dir, target_cloth_file), self.cloth_ext)
 
         # the input clothing segmentation
         input_cloth_file = random.choice(self.clothing_seg_files)
         while input_cloth_file == target_cloth_file:
             input_cloth_file = random.choice(self.clothing_seg_files) # prevent getting the same pose
-        input_cloth_file = os.path.join(self.clothing_seg_dir, input_cloth_file)
-        if self.cloth_ext in ['.jpg', '.png']:
-            input_cloth_img = Image.open(input_cloth_file)
-        else if self.cloth_ext == '.npz':
-            input_cloth_np = load_npz(os.path.join(self.clothing_seg_dir, input_cloth_file)).todense()
-            input_cloth_img = Image.fromarray(input_cloth_np)
+            
+        input_cloth_img = self._load_by_ext(os.path.join(self.clothing_seg_dir, input_cloth_file), self.cloth_ext)
 
         # the body segmentation that corresponds to the target clothing segmentation
         if not self.inference_mode:
@@ -132,15 +145,15 @@ class WarpDataset(Dataset):
             input_body_file = self._change_extension(target_cloth_file, self.cloth_ext, self.body_ext)
         else:
             input_body_file = random.choice(self.clothing_seg_files)
-            while input_body_file == input_cloth_file:
-                input_body_file = random.choice(selfe.clothing_seg_files)
+#             while input_body_file == input_cloth_file:
+#                 input_body_file = random.choice(selfe.clothing_seg_files)
             input_body_file = self._change_extension(input_body_file, self.cloth_ext, self.body_ext)
-        input_body_file = os.path.join(self.body_seg_dir, body_seg_file)
-        input_body_img = Image.open(input_body_file)
+    
+        input_body_img = self._load_by_ext(os.path.join(self.body_seg_dir, body_seg_file), self.body_ext)
         
-        print(input_cloth_file, input_body_file, target_cloth_file)
+        # print(input_cloth_file, input_body_file, target_cloth_file)
 
-        # apply the transformation if desired
+        # apply the transformations if desired
         if self.input_transform:
             input_cloth_img = self.input_transform(input_cloth_img)
 
@@ -150,13 +163,15 @@ class WarpDataset(Dataset):
         target_cloth_tensor = to_tensor(target_cloth_img)
 
         # crop to the proper image size
-        if self.crop_bounds is not None:
+        if self.crop_bounds:
             input_body_tensor = crop(input_body_tensor, self.crop_bounds)
             input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
             target_cloth_tensor = crop(target_cloth_tensor, self.crop_bounds)
 
         return input_body_tensor, input_cloth_tensor, target_cloth_tensor
 
+    
+    
 class TextureDataset(Dataset):
     def __init__(self, 
                  image_root: str,
@@ -179,12 +194,27 @@ class TextureDataset(Dataset):
         self.ext = ext
         # self.cloth_seg_files =set(glob(self.cloth_seg_root+'/**/*.npz', recursive=True))
         
+    def _load_by_ext(self, fname, ext):
+        """
+        Choose load method according to extension 
+        
+        Return:
+            loaded data as PIL Image
+        """
+        if ext in ['.jpg', '.png']:
+            img = Image.open(fname)
+        elif ext == '.npz':
+            img_np = load_npz(fname).todense()
+            img = Image.fromarray(img_np)
+        return img
+        
+        
     def __len__(self):
         return len(self.image_files)
     
     def __getitem__(self, index: int):
         """
-        are we missing the target fac? 
+        are we missing the target face and other details? 
         Recall that we only warp cloth, everything else from the image is copied over
         
         Returns:
