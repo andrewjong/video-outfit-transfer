@@ -133,7 +133,7 @@ class GeneratorUNet(nn.Module):
 
 
 class Discriminator(nn.Module):
-    def __init__(self, in_channels=3, img_size=512):
+    def __init__(self, in_channels=3, img_size=128):
         super(Discriminator, self).__init__()
 
         def discriminator_block(in_feat, out_feat, bn=True):

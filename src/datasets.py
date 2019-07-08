@@ -1,18 +1,18 @@
 import os
-import pandas as pd
-import random
-from typing import Set, List, Tuple
-import torchvision
-import os.path as op
-import torchvision.transforms.functional as t_func
-
-import numpy as np
 import torch
-from torch import Tensor
-from PIL import Image
 from torch.utils.data import Dataset
-
-to_tensor = torchvision.transforms.ToTensor()
+from torch import Tensor
+import random
+from PIL import Image
+import numpy as np
+import copy
+import torchvision
+from glob import glob
+import torchvision.transforms as transforms
+from scipy.sparse import load_npz
+import pandas as pd
+from typing import Set, List, Tuple
+import torchvision.transforms.functional as TF
 
 
 def crop(tensor: Tensor, crop_bounds):
@@ -45,244 +45,278 @@ def crop_rois(rois: np.ndarray, crop_bounds):
         rois = rois.T
     return rois
 
+to_tensor = torchvision.transforms.ToTensor()
 
+
+def random_transform_functional(*args):
+    return transforms.Compose(args)
+
+
+def random_per_channel_transform_functional(transform_function):
+    """
+    :param transform_function: any torchvision transforms classes
+    """
+
+# this parameter config is not from the paper.
+swapnet_random_transform = random_transform_functional(transforms.RandomAffine(degrees=20, translate=(0.4, 0.4), scale=(0.75, 1.25), shear=10),
+                                            transforms.RandomHorizontalFlip(0.3),
+                                            transforms.RandomVerticalFlip(0.3),
+                                           )
+
+
+def to_onehot_tensor(sp_matrix, n_labels):
+    """
+    convert sparse scipy labels matrix to onehot pt tensor of size (n_labels,H,W)
+    Note: sparse tensors aren't supported in multiprocessing https://github.com/pytorch/pytorch/issues/20248
+    
+    :param sp_matrix: sparse 2d scipy matrix, with entries in range(n_labels)
+    :return: pt tensor of size(n_labels,H,W)
+    """
+    sp_matrix = sp_matrix.tocoo()
+    indices = np.vstack((sp_matrix.data, sp_matrix.row, sp_matrix.col))
+    indices = torch.LongTensor(indices)
+    values = torch.Tensor([1.0]*sp_matrix.nnz)
+    shape = (n_labels,) + sp_matrix.shape
+    return torch.sparse.FloatTensor(indices, values, torch.Size(shape)).to_dense()
+    
 class WarpDataset(Dataset):
     def __init__(
         self,
         body_seg_dir: str,
-        clothing_seg_dir: str,
+        cloth_seg_dir: str,
         crop_bounds: Tuple[Tuple[int, int], Tuple[int, int]] = None,
-        min_offset: int = 100,
         random_seed=None,
-        input_transform=None,
+        input_transform=swapnet_random_transform,
         body_means=None,
         body_stds=None,
         inference_mode=False,
+        body_ext: str='.jpg',
+        cloth_ext: str='.npz',
     ):
         """
         Warp dataset for the warping module of SwapNet. All files in the dataset must be
         from the same subject (and ideally with the same background)
 
-        :param clothing_seg_dir: path to directory containing clothing segmentation
+        :param cloth_seg_dir: path to directory containing cloth segmentation
         .npy files
         :param body_seg_dir: path to directory containing body segmentation image files
-        :param min_offset: minimum offset to select a random other clothing
-        segmentation. (default: 50; unless min_offset < number of clothing files,
-        then 0)
-        :param random_seed: seed for getting a random clothing seg image
-        :param input_transform: transform for the random drawn clothing segmentation image.
-        Note, the transform must be able to operate on a HxWx19-channel tensor
+        :param input_transform: transform for the random drawn cloth segmentation image.
+        NOTE this input_transform takes an ndarray instead of PIL Image
         """
-        self.body_seg_dir = body_seg_dir
-        # A set of file names, mapping to RGB images
-        # we choose a set for fast lookups
-        self.body_seg_files = sorted(os.listdir(body_seg_dir))
-        self.body_seg_files_set: Set[str] = set(self.body_seg_files)
-        # file extension of the body seg images. probably .png or .jpg
-        first_bs = next(iter(self.body_seg_files_set))
-        self.body_seg_ext = op.splitext(first_bs)[-1]
-
-        self.clothing_seg_dir = clothing_seg_dir
-        # list of file names, mapping to npy arrays
-        self.clothing_seg_files: List[str] = os.listdir(clothing_seg_dir)
-
-        self.crop_bounds = crop_bounds
-
-        self.min_offset = min_offset if len(self.clothing_seg_files) < min_offset else 0
         if random_seed:
             random.seed(random_seed)
         self.random_seed = random_seed
-        self.input_transform = input_transform
+        
+        self.cloth_ext = cloth_ext
+        self.body_ext = body_ext
+        
+        # TODO: cleaner way to get rid of prefix dir
+        self.cloth_seg_dir = cloth_seg_dir
+        os.chdir(self.cloth_seg_dir)
+        self.cloth_seg_files = glob(('**/*'+self.cloth_ext), recursive=True)
+        os.chdir('../'*(len(self.cloth_seg_dir.split('/'))))
+        
+        self.body_seg_dir = body_seg_dir
 
+        self.crop_bounds = crop_bounds
+
+        self.input_transform = input_transform
+        
         # transforms for RGB images
-        body_transforms = [torchvision.transforms.ToTensor()]
+        body_transform = [transforms.ToTensor()]
         if body_means and body_stds:
-            body_transforms.append(
-                torchvision.transforms.Normalize(body_means, body_stds)
-            )
-        self.body_transforms = torchvision.transforms.Compose(body_transforms)
+            body_transform += [transforms.Normalize(body_means, body_stds)]
+        self.body_transform = transforms.Compose(body_transform)
+            
         self.inference_mode = inference_mode
+        
+    def _change_extension(self, fname, ext1, ext2):
+        """
+        :return: file name with new extension
+        """
+        return fname[:-len(ext1)] + ext2
+    
+    
+    def _decompress_cloth_segment(self, fname, n_labels) -> Tensor:
+        """
+        load cloth segmentation sparse matrix npz file
+        :return: tensor of size(H,W,n_labels)
+        """
+        data_sparse = load_npz(fname)
+        return to_onehot_tensor(data_sparse, n_labels)
+        
+    
+    def _perchannel_transform(self, input_cloth_np, transform_function) -> Tensor:
+        """
+        Randomly transform each of n_channels of input data.
+        Out of place operation
+
+        :param input_cloth_np: must be a numpy array of size (n_channels, w, h)
+        :param transform_function: any torchvision transforms class
+        :return: transformed pt tensor
+        """
+        tform_input_cloth_np = np.zeros(shape=input_cloth_np.shape, dtype=input_cloth_np.dtype)
+        n_channels = input_cloth_np.shape[0]
+        for i in range(n_channels):
+            tform_input_cloth_np[i] = np.array(transform_function(Image.fromarray(input_cloth_np[i])))
+        return torch.from_numpy(tform_input_cloth_np)
+        
 
     def __len__(self):
         """
-        Get the length of usable images
+        Get the length of usable images. Note the length of cloth and body segmentations should be same
         :return: length of the image
         """
-        # it's possible one file list will not be complete, i.e. missing
-        # corresponding files. if that's the case, the number of images we can use is
-        # the length of the smaller list
-        smaller_length = min(len(self.clothing_seg_files), len(self.body_seg_files_set))
-        return smaller_length
+        return len(self.cloth_seg_files)
 
-    def _get_matching_body_seg_file(self, clothing_seg_fname: str):
-        """
-        For a given clothing segmentation file, get the matching body segmentation
-        file that corresponds to it.
-        :param clothing_seg_fname:
-        :return:
-        :raises ValueError: if no corresponding body segmentation image found.
-        """
-        base_fname = os.path.basename(clothing_seg_fname)
-        fname_no_extension = op.splitext(base_fname)[0]
-        body_seg_fname = fname_no_extension + self.body_seg_ext
-
-        if body_seg_fname in self.body_seg_files_set:
-            return body_seg_fname
-        else:
-            raise ValueError(
-                "No corresponding body segmentation image found. "
-                "Could not find: " + body_seg_fname
-            )
-
-    def _get_random_clothing_seg(self, index):
-        """
-        Note, this implementation isn't perfect, but should be good enough for now (
-        we're on a deadline).
-
-        Unaccounted corner cases: index == 0 or index == max-index
-        :param index:
-        :return:
-        """
-        min_thresh = index - self.min_offset
-        max_thresh = index + self.min_offset + 1  # + 1 so that
-        # make sure we're not out-of-bounds
-        if min_thresh < 0:
-            min_thresh = 0
-        if max_thresh >= len(self.clothing_seg_files):
-            max_thresh = len(self.clothing_seg_files) - 1
-
-        # our valid set
-        valid_choices = (
-            self.clothing_seg_files[:min_thresh] + self.clothing_seg_files[max_thresh:]
-        )
-
-        return random.choice(valid_choices)
 
     def __getitem__(self, index) -> Tuple[Tensor, Tensor, Tensor]:
         """
         Strategy:
-            Get a target clothing segmentation (.npy). Get the matching body
-            segmentation (.png)
-            Choose a random starting clothing segmentation from a different frame_num
-            (.npy), and perform data augmention on each channel of that frame_num
+            Get a target cloth segmentation (.npz). Get the matching body
+            segmentation (.jpg)
+            Choose a random input cloth segmentation from a different frame_num
+            (.npz), and perform data augmention on each channel of that frame_num
 
         :param index:
-        :return: body segmentation, input clothing segmentation, target clothing
-        segmentation
+        :return: input body segmentation, input cloth segmentation, target cloth segmentation
         """
 
-        # Load as np arrays
-        target_cs_file = self.clothing_seg_files[index]
-        target_cs_img = Image.open(os.path.join(self.clothing_seg_dir, target_cs_file))
+        # the target cloth segmentation
+        target_cloth_file = self.cloth_seg_files[index]
+        target_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, target_cloth_file), n_labels=19)
 
-        input_cs_file = self._get_random_clothing_seg(index)
-        input_cs_img = Image.open(os.path.join(self.clothing_seg_dir, input_cs_file))
+        # the input cloth segmentation
+        input_cloth_file = random.choice(self.cloth_seg_files)
+        while input_cloth_file == target_cloth_file:
+            input_cloth_file = random.choice(self.cloth_seg_files) # prevent getting the same pose
+            
+        input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19)
 
-        # the body segmentation that corresponds to the target
-        body_seg_file = (
-            self._get_matching_body_seg_file(target_cs_file)
-            if not self.inference_mode
-            else self.body_seg_files[index]
-        )
-        body_seg_img = Image.open(os.path.join(self.body_seg_dir, body_seg_file))
+        # the body segmentation that corresponds to the target cloth segmentation
+        if not self.inference_mode:
+            # get the same target image's body segmentation
+            input_body_file = self._change_extension(target_cloth_file, self.cloth_ext, self.body_ext)
+        else:
+            input_body_file = random.choice(self.cloth_seg_files)
+            input_body_file = self._change_extension(input_body_file, self.cloth_ext, self.body_ext)
+    
+        input_body_img = Image.open(os.path.join(self.body_seg_dir, input_body_file))
+        input_body_tensor = self.body_transform(input_body_img)
+        
+#         print(input_body_file, input_cloth_file, target_cloth_file)
 
-        # apply the transformation if desired
+        # apply the transformations if desired
         if self.input_transform:
-            input_cs_img = self.input_transform(input_cs_img)
+            input_cloth_np = input_cloth_tensor.numpy()
+            input_cloth_tensor = self._perchannel_transform(input_cloth_np, self.input_transform)
 
-        # convert to PT tensors and return
-        # TODO: normalize the tensors
-        body_s = self.body_transforms(body_seg_img)
-        input_cs = to_tensor(input_cs_img)
-        target_cs = to_tensor(target_cs_img)
 
         # crop to the proper image size
-        if self.crop_bounds is not None:
-            body_s = crop(body_s, self.crop_bounds)
-            input_cs = crop(input_cs, self.crop_bounds)
-            target_cs = crop(target_cs, self.crop_bounds)
+        if self.crop_bounds:
+            input_body_tensor = crop(input_body_tensor, self.crop_bounds)
+            input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
+            target_cloth_tensor = crop(target_cloth_tensor, self.crop_bounds)
 
-        return body_s, input_cs, target_cs
+        return input_body_tensor, input_cloth_tensor, target_cloth_tensor
 
-
-# TODO: lot of duplicated code. have to optimize this
+    
+    
 class TextureDataset(Dataset):
-    def __init__(
-        self, texture_dir, rois_db, clothing_dir, crop_bounds=None
-    ):
-        """
-        Strategy:
-            Get a target photo (.png). Get the matching clothing
-            segmentation (.npy).
-
-
-        HAVE TO UPDATE THE ROI TO MATCH CROP BOUNDS AND POSSIBLE NONE TYPES
-        WHAT DO IF NONE? PUT ZERO?
-
-
-        From the target image, get the matching clothing img.
-        apply the SAME transform to the clothing img and target texture
-        """
+    def __init__(self, 
+                 texture_dir: str,
+                 rois_db: str,
+                 cloth_seg_dir: str,
+                 random_seed: int = None,
+                 input_transform = swapnet_random_transform, # should default to swapnet transform?
+                 crop_bounds = None,
+                 cloth_ext: str = '.npz',
+                 img_ext: str = '.jpg',
+                ):
+        if random_seed:
+            random.seed(random_seed)
         super().__init__()
-
         self.texture_dir = texture_dir
-        self.texture_files = os.listdir(texture_dir)
-
-        rois_df = pd.read_csv(rois_db, index_col=False)
-        # remove None values
-        self.rois_df = rois_df.replace("None", 0).astype(np.float32)
-        self.clothing_dir = clothing_dir
-
+        self.cloth_seg_dir = cloth_seg_dir
+        self.img_ext = img_ext
+        self.cloth_ext = cloth_ext
+        
+        os.chdir(self.texture_dir)
+        self.texture_files = glob(os.path.join('**/*'+self.img_ext), recursive=True)
+        os.chdir('../'*(len(self.texture_dir.split('/'))))
+        
+        self.rois_df = pd.read_csv(rois_db, index_col=0)
+        
+        # drop all None values
+        self.rois_df = self.rois_df.replace("None", np.nan).dropna(how='any').astype(np.float32)
+        
+        self.input_transform = input_transform
         self.crop_bounds = crop_bounds
-
-    def get_matching_file(self, fname, dir, ext):
+        
+        
+    def _decompress_cloth_segment(self, fname, n_labels) -> torch.Tensor:
         """
-        Given a filename, get the matching file in a different directory that has a
-        different extension.
-        :param fname:
-        :param dir: other dir to get the file from
-        :param ext:
-        :return:
+        load cloth segmentation from sparse matrix npz file
+        :return: sparse tensor of size(H,W,n_labels)
         """
-        fname = op.basename(fname)
-        fname_no_ext = op.splitext(fname)[0]
-        cloth_name = fname_no_ext + ext
-        return op.join(dir, cloth_name)
-
+        data_sparse = load_npz(fname)
+        
+        return to_onehot_tensor(data_sparse, n_labels)
+    
+#     def _random_crop_and_flip(img, rois=None):
+#         H, W = img.shape[1], img.shape[2]
+#         if random.random() < 0.3:
+#             TF.hflip(img)
+#             if rois:
+                
+            
+#         if random.random() < 0.3:
+#             TF.vflip(img)
+#             if rois:
+#                 TF.vflip(rois)
+        
+        
     def __len__(self):
         return len(self.texture_files)
-
-    def get_matching_rois(self, index):
+    
+    def __getitem__(self, index: int):
         """
-        get matching roi based on index
-        :return:
+        Q: are we missing the target face and other details? 
+        A: Recall that we only warp cloth, everything else from the texture is copied over (post-process)
+        
+        Returns:
+            (augmented) input texture with desired cloth
+            rois of (augmented) input texture
+            cloth segmentation at the desired pose
+            input texture with desired cloth (for training)
         """
-        rois_np = self.rois_df[self.rois_df["id"] == index].values
-        return rois_np
-
-    def __getitem__(self, index):
-        """
-        Gets a clothing file and its corresponding texture file.
-        :param index:
-        :return:
-        """
-        texture_file = op.join(self.texture_dir, self.texture_files[index])
-        texture_img = Image.open(texture_file)
-
-        cloth_file = self.get_matching_file(texture_file, self.clothing_dir, ".png")
-        cloth_img = Image.open(cloth_file)
-
-        texture = to_tensor(texture_img)
-        # TODO: batch is incorrect after batch_size. e.g. if batch size is 2,
-        # index from 2 onward won't work
-        rois = self.get_matching_rois(index)
-        cloth = to_tensor(cloth_img)
-
-        if self.crop_bounds:
-            texture = crop(texture, self.crop_bounds)
-            rois = crop_rois(rois, self.crop_bounds)
-            cloth = crop(cloth, self.crop_bounds)
-
-        rois = torch.from_numpy(rois)
-
-        return texture, rois, cloth
+        input_texture_file = self.texture_files[index]
+        input_texture_img = Image.open(os.path.join(self.texture_dir, input_texture_file))
+        
+        # replace .png with .npz
+        file_name = input_texture_file[:-len(self.img_ext)]
+        input_cloth_file = file_name + self.cloth_ext
+        input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19)
+        
+        # refer to swapnet p.9
+        if self.input_transform:
+            input_texture_tensor = to_tensor(self.input_transform(input_texture_img))
+        else:
+            input_texture_tensor = to_tensor(input_texture_img)
+        
+        output_texture_tensor = to_tensor(input_texture_img)
+            
+        try:
+            rois = self.rois_df.loc[file_name].values
+            input_rois_tensor = torch.from_numpy(rois)
+        except KeyError:
+            rois = torch.Tensor([[]])
+            
+        
+#         if self.crop_bounds:
+#             input_texture_tensor = crop(input_texture_tensor, self.crop_bounds)
+#             input_rois_tensor = crop_rois(input_rois_tensor, self.crop_bounds)
+#             input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
+        
+        return input_texture_tensor, input_rois_tensor, input_cloth_tensor, output_texture_tensor
+        

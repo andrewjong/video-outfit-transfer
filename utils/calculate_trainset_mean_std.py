@@ -7,18 +7,22 @@ gist source: https://gist.github.com/jdhao/9a86d4b9e4f79c5330d54de991461fd6
 """
 
 import numpy as np
-from os import listdir
+from os import listdir, chdir
 from tqdm import tqdm
 from os.path import join, isdir
 from glob import glob
 import cv2
 import timeit
+import sys
+
+sys.path.append('.')
 
 from config import (
-    ANDREW_CLOTHING_SEG,
-    ANDREW_BODY_SEG,
-    TINA_CLOTHING_SEG,
-    TINA_BODY_SEG,
+#     ANDREW_CLOTHING_SEG,
+#     ANDREW_BODY_SEG,
+#     TINA_CLOTHING_SEG,
+#     TINA_BODY_SEG,
+    BODY_SEG,
 )
 
 # number of channels of the dataset image, 3 for color jpg, 1 for grayscale img
@@ -30,7 +34,8 @@ def cal_dir_stat(root):
     channel_sum = np.zeros(CHANNEL_NUM)
     channel_sum_squared = np.zeros(CHANNEL_NUM)
 
-    im_pths = glob(join(root, "*.png"))
+    im_pths = glob(join(root,"**/*"+".jpg"), recursive=True)
+    print(len(im_pths))
 
     for path in tqdm(im_pths):
         im = cv2.imread(path)  # image in M*N*3 shape, channel in BGR order
@@ -49,7 +54,7 @@ def cal_dir_stat(root):
 
 # The script assumes that under train_root, there are separate directories for each class
 # of training images.
-train_root = TINA_BODY_SEG
+train_root = BODY_SEG
 start = timeit.default_timer()
 mean, std = cal_dir_stat(train_root)
 end = timeit.default_timer()
