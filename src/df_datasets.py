@@ -12,6 +12,7 @@ import torchvision.transforms as transforms
 from scipy.sparse import load_npz
 import pandas as pd
 from typing import Set, List, Tuple
+import torchvision.transforms.functional as TF
 
 
 def crop(tensor: Tensor, crop_bounds):
@@ -55,56 +56,28 @@ def random_per_channel_transform_functional(transform_function):
     """
     :param transform_function: any torchvision transforms classes
     """
-    def transform(input_cloth_np) -> Tensor:
-        """
-        Randomly transform each of n_channels of input data.
-        Out of place operation
-
-        :param: input_cloth_np: must be a PIL Image of size (n_channels, w, h)
-        :return: new copy of transformed PIL Image
-        """
-        print(input_cloth_np.shape)
-        tform_input_cloth_np = np.zeros(shape=input_cloth_np.shape, dtype=input_cloth_np.dtype)
-        n_channels = input_cloth_np.shape[0]
-        for i in range(n_channels):
-            tform_input_cloth_np[i] = np.array(transform_function(Image.fromarray(input_cloth_np[i])))
-        return torch.from_numpy(tform_input_cloth_np)
-    return transform
 
 # this parameter config is not from the paper.
-swapnet_random_transform = random_transform_functional(transforms.RandomAffine(degrees=30, translate=(0.2, 0.2), shear=30),
+swapnet_random_transform = random_transform_functional(transforms.RandomAffine(degrees=20, translate=(0.4, 0.4), scale=(0.75, 1.25), shear=10),
                                             transforms.RandomHorizontalFlip(0.3),
                                             transforms.RandomVerticalFlip(0.3),
                                            )
 
-swapnet_per_channel_transform = random_per_channel_transform_functional(swapnet_random_transform)
-    
 
-# def to_onehot(sp_matrix, n_labels):
-#     """
-#     convert ndarray labels to dense onehot ndarray
-#     last dimension must be in range(n_labels)
-#     """
-#     oshape = img.shape
-#     img = img.reshape(np.prod(img.shape), 1)
-#     res = np.zeros(shape=(sp_matrix.shape[0][:,None], n_labels))
-#     res[np.arange(img.shape[0]).T,img] = 1.0
-#     res = res.reshape(oshape+(n_labels,))
-#     return res
-    
-
-def to_onehot_sparse_tensor(sp_matrix, n_labels):
+def to_onehot_tensor(sp_matrix, n_labels):
     """
-    convert sparse scipy labels matrix to sparse onehot pt tensor of size (n_labels,H,W)
+    convert sparse scipy labels matrix to onehot pt tensor of size (n_labels,H,W)
+    Note: sparse tensors aren't supported in multiprocessing https://github.com/pytorch/pytorch/issues/20248
+    
     :param sp_matrix: sparse 2d scipy matrix, with entries in range(n_labels)
-    :return: pt sparse tensor of size(n_labels,H,W)
+    :return: pt tensor of size(n_labels,H,W)
     """
     sp_matrix = sp_matrix.tocoo()
     indices = np.vstack((sp_matrix.data, sp_matrix.row, sp_matrix.col))
     indices = torch.LongTensor(indices)
     values = torch.Tensor([1.0]*sp_matrix.nnz)
     shape = (n_labels,) + sp_matrix.shape
-    return torch.sparse.FloatTensor(indices, values, torch.Size(shape))
+    return torch.sparse.FloatTensor(indices, values, torch.Size(shape)).to_dense()
     
 class WarpDataset(Dataset):
     def __init__(
@@ -113,11 +86,11 @@ class WarpDataset(Dataset):
         cloth_seg_dir: str,
         crop_bounds: Tuple[Tuple[int, int], Tuple[int, int]] = None,
         random_seed=None,
-        input_transform=swapnet_per_channel_transform,
+        input_transform=swapnet_random_transform,
         body_means=None,
         body_stds=None,
         inference_mode=False,
-        body_ext: str='.png',
+        body_ext: str='.jpg',
         cloth_ext: str='.npz',
     ):
         """
@@ -164,16 +137,29 @@ class WarpDataset(Dataset):
         return fname[:-len(ext1)] + ext2
     
     
-    def _decompress_cloth_segment(self, fname, n_labels) -> torch.sparse.FloatTensor:
+    def _decompress_cloth_segment(self, fname, n_labels) -> Tensor:
         """
         load cloth segmentation sparse matrix npz file
-        :return: sparse tensor of size(H,W,19)
+        :return: tensor of size(H,W,n_labels)
         """
         data_sparse = load_npz(fname)
-        sparse_tensor = to_onehot_sparse_tensor(data_sparse, n_labels)
+        return to_onehot_tensor(data_sparse, n_labels)
         
-        return sparse_tensor
     
+    def _perchannel_transform(self, input_cloth_np, transform_function) -> Tensor:
+        """
+        Randomly transform each of n_channels of input data.
+        Out of place operation
+
+        :param input_cloth_np: must be a numpy array of size (n_channels, w, h)
+        :param transform_function: any torchvision transforms class
+        :return: transformed pt tensor
+        """
+        tform_input_cloth_np = np.zeros(shape=input_cloth_np.shape, dtype=input_cloth_np.dtype)
+        n_channels = input_cloth_np.shape[0]
+        for i in range(n_channels):
+            tform_input_cloth_np[i] = np.array(transform_function(Image.fromarray(input_cloth_np[i])))
+        return torch.from_numpy(tform_input_cloth_np)
         
 
     def __len__(self):
@@ -188,13 +174,12 @@ class WarpDataset(Dataset):
         """
         Strategy:
             Get a target cloth segmentation (.npz). Get the matching body
-            segmentation (.png)
-            Choose a random starting cloth segmentation from a different frame_num
+            segmentation (.jpg)
+            Choose a random input cloth segmentation from a different frame_num
             (.npz), and perform data augmention on each channel of that frame_num
 
         :param index:
-        :return: input body segmentation, input cloth segmentation, target cloth
-        segmentation
+        :return: input body segmentation, input cloth segmentation, target cloth segmentation
         """
 
         # the target cloth segmentation
@@ -219,12 +204,12 @@ class WarpDataset(Dataset):
         input_body_img = Image.open(os.path.join(self.body_seg_dir, input_body_file))
         input_body_tensor = self.body_transform(input_body_img)
         
-        print(input_body_file, input_cloth_file, target_cloth_file)
+#         print(input_body_file, input_cloth_file, target_cloth_file)
 
         # apply the transformations if desired
         if self.input_transform:
-            input_cloth_np = input_cloth_tensor.to_dense().numpy()
-            input_cloth_tensor = self.input_transform(input_cloth_np)
+            input_cloth_np = input_cloth_tensor.numpy()
+            input_cloth_tensor = self._perchannel_transform(input_cloth_np, self.input_transform)
 
 
         # crop to the proper image size
@@ -260,21 +245,36 @@ class TextureDataset(Dataset):
         self.texture_files = glob(os.path.join('**/*'+self.img_ext), recursive=True)
         os.chdir('../'*(len(self.texture_dir.split('/'))))
         
-        self.rois_df = pd.read_csv(rois_db, index_col=False)
-        self.rois_df = self.rois_df.replace("None", 0).astype(np.float32)
+        self.rois_df = pd.read_csv(rois_db, index_col=0)
+        
+        # drop all None values
+        self.rois_df = self.rois_df.replace("None", np.nan).dropna(how='any').astype(np.float32)
         
         self.input_transform = input_transform
         self.crop_bounds = crop_bounds
         
         
-    def _decompress_cloth_segment(self, fname, n_labels) -> torch.sparse.FloatTensor:
+    def _decompress_cloth_segment(self, fname, n_labels) -> torch.Tensor:
         """
-        load cloth segmentation sparse matrix npz file
-        :return: sparse tensor of size(H,W,19)
+        load cloth segmentation from sparse matrix npz file
+        :return: sparse tensor of size(H,W,n_labels)
         """
         data_sparse = load_npz(fname)
         
-        return to_onehot_sparse_tensor(data_sparse, n_labels)
+        return to_onehot_tensor(data_sparse, n_labels)
+    
+#     def _random_crop_and_flip(img, rois=None):
+#         H, W = img.shape[1], img.shape[2]
+#         if random.random() < 0.3:
+#             TF.hflip(img)
+#             if rois:
+                
+            
+#         if random.random() < 0.3:
+#             TF.vflip(img)
+#             if rois:
+#                 TF.vflip(rois)
+        
         
     def __len__(self):
         return len(self.texture_files)
@@ -306,13 +306,17 @@ class TextureDataset(Dataset):
         
         output_texture_tensor = to_tensor(input_texture_img)
             
-        rois = self.rois_df[self.rois_df['id'] == file_name].values
-        input_rois_tensor = torch.from_numpy(rois)
+        try:
+            rois = self.rois_df.loc[file_name].values
+            input_rois_tensor = torch.from_numpy(rois)
+        except KeyError:
+            rois = torch.Tensor([[]])
+            
         
-        if self.crop_bounds:
-            input_texture_tensor = crop(input_texture_tensor, self.crop_bounds)
-            input_rois_tensor = crop_rois(input_rois_tensor, self.crop_bounds)
-            input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
+#         if self.crop_bounds:
+#             input_texture_tensor = crop(input_texture_tensor, self.crop_bounds)
+#             input_rois_tensor = crop_rois(input_rois_tensor, self.crop_bounds)
+#             input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
         
         return input_texture_tensor, input_rois_tensor, input_cloth_tensor, output_texture_tensor
         
