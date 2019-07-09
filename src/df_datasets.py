@@ -81,7 +81,7 @@ class WarpDataset(Dataset):
         cloth_seg_dir: str,
         crop_bounds: Tuple[Tuple[int, int], Tuple[int, int]] = None,
         random_seed=None,
-        input_transform=swapnet_random_transform,
+        input_transform=None,
         body_means=None,
         body_stds=None,
         inference_mode=False,
@@ -220,7 +220,7 @@ class TextureDataset(Dataset):
                  rois_db: str,
                  cloth_seg_dir: str,
                  random_seed: int = None,
-                 input_transform = swapnet_random_transform, # should default to swapnet transform?
+                 input_transform =None, # should default to swapnet transform?
                  crop_bounds = None,
                  cloth_ext: str = '.npz',
                  img_ext: str = '.jpg',
