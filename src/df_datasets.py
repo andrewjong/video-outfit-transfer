@@ -52,11 +52,6 @@ def random_transform_functional(*args):
     return transforms.Compose(args)
 
 
-def random_per_channel_transform_functional(transform_function):
-    """
-    :param transform_function: any torchvision transforms classes
-    """
-
 # this parameter config is not from the paper.
 swapnet_random_transform = random_transform_functional(transforms.RandomAffine(degrees=20, translate=(0.4, 0.4), scale=(0.75, 1.25), shear=10),
                                             transforms.RandomHorizontalFlip(0.3),
@@ -97,11 +92,9 @@ class WarpDataset(Dataset):
         Warp dataset for the warping module of SwapNet. All files in the dataset must be
         from the same subject (and ideally with the same background)
 
-        :param cloth_seg_dir: path to directory containing cloth segmentation
-        .npy files
+        :param cloth_seg_dir: path to directory containing cloth segmentation .npy files
         :param body_seg_dir: path to directory containing body segmentation image files
         :param input_transform: transform for the random drawn cloth segmentation image.
-        NOTE this input_transform takes an ndarray instead of PIL Image
         """
         if random_seed:
             random.seed(random_seed)
@@ -110,7 +103,6 @@ class WarpDataset(Dataset):
         self.cloth_ext = cloth_ext
         self.body_ext = body_ext
         
-        # TODO: cleaner way to get rid of prefix dir
         self.cloth_seg_dir = cloth_seg_dir
         os.chdir(self.cloth_seg_dir)
         self.cloth_seg_files = glob(('**/*'+self.cloth_ext), recursive=True)
@@ -313,10 +305,10 @@ class TextureDataset(Dataset):
             rois = torch.Tensor([[]])
             
         
-#         if self.crop_bounds:
-#             input_texture_tensor = crop(input_texture_tensor, self.crop_bounds)
-#             input_rois_tensor = crop_rois(input_rois_tensor, self.crop_bounds)
-#             input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
+        if self.crop_bounds:
+            input_texture_tensor = crop(input_texture_tensor, self.crop_bounds)
+            input_rois_tensor = crop_rois(input_rois_tensor, self.crop_bounds)
+            input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
         
         return input_texture_tensor, input_rois_tensor, input_cloth_tensor, output_texture_tensor
         
