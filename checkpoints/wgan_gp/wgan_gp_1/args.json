@@ -1,0 +1,20 @@
+{
+    "dataset": "data/wgan/andrew",
+    "experiment": "wgan_gp_1",
+    "out_dir": "output/wgan_gp",
+    "save_dir": "models/wgan_gp",
+    "n_epochs": 200,
+    "batch_size": 2,
+    "lr": 0.0002,
+    "b1": 0.5,
+    "b2": 0.999,
+    "n_cpu": 8,
+    "latent_dim": 100,
+    "img_size": 256,
+    "channels": 3,
+    "n_critic": 5,
+    "clip_value": 0.01,
+    "lambda_gp": 10,
+    "sample_interval": 400,
+    "checkpoint_interval": 10
+}

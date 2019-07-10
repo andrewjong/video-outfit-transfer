@@ -7,6 +7,7 @@ import json
 import os
 from glob import glob
 from pprint import pprint
+from time import strftime, gmtime
 
 import torch
 
@@ -60,7 +61,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--save_dir",
-    default=os.path.join("models", "texture_stage"),
+    default=os.path.join("checkpoints", "texture_stage"),
     help="Where to store saved model weights",
 )
 parser.add_argument(
@@ -155,9 +156,12 @@ if cuda:
 #######################
 # Make output folders
 #######################
-OUT_DIR = (
-    os.path.join(args.out_dir, args.dataset_name) if args.dataset_name else args.out_dir
-)
+# use time if no expeirment passed
+if not args.experiment:
+    time_str = strftime("%Y-%m-%d_%H-%M_%S", gmtime())
+    args.experiment = time_str
+
+OUT_DIR = os.path.join(args.out_dir, args.experiment)
 os.makedirs(OUT_DIR, exist_ok=True)
 MODEL_DIR = (
     os.path.join(args.save_dir, args.dataset_name)

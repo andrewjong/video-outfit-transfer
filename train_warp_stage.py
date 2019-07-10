@@ -6,6 +6,7 @@ import argparse
 import os
 import json
 from pprint import pprint
+from time import strftime, gmtime
 
 import torch
 
@@ -39,7 +40,7 @@ parser.add_argument(
     help="Path to folder containing cloth segmentation images (*.png or *.jpg)",
 )
 parser.add_argument(
-    "-e", "--experiment", default="", help="Name the dataset for output path"
+    "-e", "--experiment", default=None, help="Name the dataset for output path. Defaults to current GMT time."
 )
 parser.add_argument(
     "-o",
@@ -49,7 +50,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--save_dir",
-    default=os.path.join("models", "warp_stage"),
+    default=os.path.join("checkpoints", "warp_stage"),
     help="Where to store saved model weights",
 )
 parser.add_argument("--epoch", type=int, default=0, help="epoch to start training from")
@@ -101,7 +102,7 @@ parser.add_argument(
 )
 parser.add_argument(
     "--val_dir",
-    help="Path to folder for validation. Use with samping with the --sample_interval argument.",
+    help="Path to cloth folder for validation. Use with samping with the --sample_interval argument.",
 )
 parser.add_argument(
     "--checkpoint_interval",
@@ -131,9 +132,12 @@ if cuda:
 #######################
 # Make output folders
 #######################
-OUT_DIR = (
-    os.path.join(args.out_dir, args.experiment) if args.experiment else args.out_dir
-)
+# use time if no expeirment passed
+if not args.experiment:
+    time_str = strftime("%Y-%m-%d_%H-%M_%S", gmtime())
+    args.experiment = time_str
+
+OUT_DIR = os.path.join(args.out_dir, args.experiment)
 os.makedirs(OUT_DIR, exist_ok=True)
 MODEL_DIR = (
     os.path.join(args.save_dir, args.experiment)
@@ -161,7 +165,7 @@ criterion_pixelwise = PerPixelCrossEntropyLoss()
 # Initialize generator and discriminator
 generator = WarpModule(cloth_channels=args.cloth_channels, dropout=args.dropout)
 # cloth channels + RGB
-discriminator = Discriminator(in_channels=args.cloth_channels + 3, img_size=128)
+discriminator = Discriminator(in_channels=args.cloth_channels + 3, img_size=args.img_height)
 
 if cuda:
     generator = generator.cuda()
@@ -380,7 +384,7 @@ for epoch in tqdm(
         # End train if starts to destabilize
         # ------------------------------
         # numbers determined experimentally
-        if loss_D < 0.05 and loss_warp > 3:
+        if loss_D < 0.005 and loss_warp > 8:
             print(
                 "Loss_D is less than 0.05 and loss_warp > 3!",
                 "Saving models and ending train to prevent destabilization.",
