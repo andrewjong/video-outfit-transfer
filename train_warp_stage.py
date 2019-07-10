@@ -232,8 +232,7 @@ if args.val_dir:
         body_seg_dir=args.body_dir,
         cloth_seg_dir=args.val_dir,
         crop_bounds=config.CROP_BOUNDS,
-        body_ext='.jpg',
-        inference_mode=True,
+        inference_mode=False,
     )
     val_dataloader = torch.utils.data.DataLoader(
         val_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
@@ -257,8 +256,12 @@ def sample_images(epoch, batches_done):
 #         nrow=args.batch_size,
 #         normalize=True,
 #     )
+    
+    validation_out_dir = os.path.join(OUT_DIR, "validation")
+    if not os.path.exists(validation_out_dir):
+        os.makedirs(validation_out_dir)
     torch.save({'input_body': bodys.data, 'input_cloth': inputs.data, 'output_cloth': fakes.data, 'target_cloth': targets.data},
-              os.path.join(OUT_DIR, "validation", f"{epoch:02d}_{batches_done:05d}.pt"),)
+              os.path.join(validation_out_dir, f"{epoch:02d}_{batches_done:05d}.pt"),)
 
 
 ###############################
