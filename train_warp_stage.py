@@ -252,26 +252,13 @@ def sample_images(epoch, batches_done, num_images=5):
         targets = targets.cuda()
     fakes = generator(bodys, inputs)
 
-    # TODO: bodys are still normalized, need to put back into RGB space rather than normal space
-    bodys = bodys.data.cpu()[:num_images]
+    # scale and decode cloth labels
+    rgb_bodys = ((bodys - bodys.min()) * 255 / (bodys.max() - bodys.min())).byte().cpu()[:num_images]
+    decoded_inputs = decode_cloth_labels(inputs.detach().cpu())[:num_images]
+    decoded_fakes = decode_cloth_labels(fakes.detach().cpu())[:num_images]
+    decoded_targets = decode_cloth_labels(targets.detach().cpu())[:num_images]
 
-    inputs_argmax = inputs.detach().argmax(dim=1, keepdim=True).cpu().numpy()
-    fakes_argmax = fakes.detach().argmax(dim=1, keepdim=True).cpu().numpy()
-    targets_argmax = targets.detach().argmax(dim=1, keepdim=True).cpu().numpy()
-
-    # detach removes gradients. cpu() for numpy. permute because to put into torch channel order. float() to make compatible with bodys
-    decoded_inputs = torch.from_numpy(decode_cloth_labels(inputs_argmax)).permute(0, 3, 1, 2).float()[:num_images]
-    decoded_fakes = torch.from_numpy(decode_cloth_labels(fakes_argmax)).permute(0, 3, 1, 2).float()[:num_images]
-    decoded_targets = torch.from_numpy(decode_cloth_labels(targets_argmax)).permute(0, 3, 1, 2).float()[:num_images]
-
-    B, C, H, W = bodys.shape
-
-    bodys = bodys.view(1, C, B*H, W)
-    decoded_inputs = decoded_inputs.view(1, C, B*H, W)
-    decoded_fakes = decoded_fakes.view(1, C, B*H, W)
-    decoded_targets = decoded_targets.view(1, C, B*H, W)
-
-    img_sample = torch.cat((bodys, decoded_inputs, decoded_fakes, decoded_targets), dim=0)
+    img_sample = torch.cat((rgb_bodys, decoded_inputs, decoded_fakes, decoded_targets), dim=-2)
 
     save_image(
         img_sample,
