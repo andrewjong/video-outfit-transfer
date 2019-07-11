@@ -84,17 +84,18 @@ class WarpDataset(Dataset):
         input_transform=None,
         body_means=None,
         body_stds=None,
-        inference_mode=False,
         body_ext: str='.jpg',
         cloth_ext: str='.npz',
+        inference_mode=False,
     ):
         """
         Warp dataset for the warping module of SwapNet. All files in the dataset must be
         from the same subject (and ideally with the same background)
 
-        :param cloth_seg_dir: path to directory containing cloth segmentation .npy files
-        :param body_seg_dir: path to directory containing body segmentation image files
-        :param input_transform: transform for the random drawn cloth segmentation image.
+        :param cloth_seg_dir: path to directory containing cloth segmentation (.npz) files
+        :param body_seg_dir: path to directory containing body segmentation image (.jpg) files
+        :param input_transform: torchvision transform for the random drawn cloth segmentation image.
+        
         """
         if random_seed:
             random.seed(random_seed)
@@ -162,28 +163,24 @@ class WarpDataset(Dataset):
         return len(self.cloth_seg_files)
 
 
-    def __getitem__(self, index) -> Tuple[Tensor, Tensor, Tensor]:
+    def __getitem__(self, index):
         """
-        Strategy:
-            Get a target cloth segmentation (.npz). Get the matching body
-            segmentation (.jpg)
-            Choose a random input cloth segmentation from a different frame_num
-            (.npz), and perform data augmention on each channel of that frame_num
-
-        :param index:
-        :return: input body segmentation, input cloth segmentation, target cloth segmentation
+        :returns:
+            For training, return (input) AUGMENTED cloth seg, (input) body seg and (target) cloth seg
+            of the SAME image
+            For inference (e.g validation), return (input) cloth seg and (input) body seg
+            of 2 different images
         """
 
-        # the target cloth segmentation
-        target_cloth_file = self.cloth_seg_files[index]
-        target_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, target_cloth_file), n_labels=19)
 
         # the input cloth segmentation
-        input_cloth_file = random.choice(self.cloth_seg_files)
-        while input_cloth_file == target_cloth_file:
-            input_cloth_file = random.choice(self.cloth_seg_files) # prevent getting the same pose
-            
+        input_cloth_file = self.cloth_seg_files[index]
         input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19)
+        
+        # the target cloth segmentation for training
+        if not self.inference_mode:
+            target_cloth_file = input_cloth_file
+            target_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, target_cloth_file), n_labels=19)
 
         # the body segmentation that corresponds to the target cloth segmentation
         if not self.inference_mode:
@@ -198,8 +195,8 @@ class WarpDataset(Dataset):
         
 #         print(input_body_file, input_cloth_file, target_cloth_file)
 
-        # apply the transformations if desired
-        if self.input_transform:
+        # apply the trainsformation for input cloth segmentation for training
+        if self.input_transform and not self.inference_mode:
             input_cloth_np = input_cloth_tensor.numpy()
             input_cloth_tensor = self._perchannel_transform(input_cloth_np, self.input_transform)
 
@@ -208,9 +205,13 @@ class WarpDataset(Dataset):
         if self.crop_bounds:
             input_body_tensor = crop(input_body_tensor, self.crop_bounds)
             input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
-            target_cloth_tensor = crop(target_cloth_tensor, self.crop_bounds)
+            if not self.inference_mode:
+                target_cloth_tensor = crop(target_cloth_tensor, self.crop_bounds)
 
-        return input_body_tensor, input_cloth_tensor, target_cloth_tensor
+        if not self.inference_mode:
+            return input_body_tensor, input_cloth_tensor, target_cloth_tensor
+        else:
+            return input_body_tensor, input_cloth_tensor,
 
     
     
@@ -219,31 +220,41 @@ class TextureDataset(Dataset):
                  texture_dir: str,
                  rois_db: str,
                  cloth_seg_dir: str,
+                 warped_cloth_dir: str=None,
                  random_seed: int = None,
                  input_transform =None, # should default to swapnet transform?
                  crop_bounds = None,
                  cloth_ext: str = '.npz',
                  img_ext: str = '.jpg',
+                 inference_mode=False,
                 ):
         if random_seed:
             random.seed(random_seed)
         super().__init__()
         self.texture_dir = texture_dir
         self.cloth_seg_dir = cloth_seg_dir
+        self.warped_cloth_dir = warped_cloth_dir
         self.img_ext = img_ext
         self.cloth_ext = cloth_ext
         
+        # get all texture files
         os.chdir(self.texture_dir)
         self.texture_files = glob(os.path.join('**/*'+self.img_ext), recursive=True)
         os.chdir('../'*(len(self.texture_dir.split('/'))))
         
+        # for inference, get all warp stage cloth segmentation output files
+        if self.warped_cloth_dir:
+            os.chdir(self.warped_cloth_dir)
+            self.warped_cloth_files = glob(os.path.join('**/*'+self.cloth_ext), recursive=True)
+            os.chdir('../'*(len(self.warped_cloth_dir.split('/'))))
+        
         self.rois_df = pd.read_csv(rois_db, index_col=0)
         
-        # drop all None values
-        self.rois_df = self.rois_df.replace("None", np.nan).dropna(how='any').astype(np.float32)
+        self.rois_df = self.rois_df.replace("None", 0).astype(np.float32)
         
         self.input_transform = input_transform
         self.crop_bounds = crop_bounds
+        self.inference_mode = inference_mode
         
         
     def _decompress_cloth_segment(self, fname, n_labels) -> torch.Tensor:
@@ -255,6 +266,8 @@ class TextureDataset(Dataset):
         
         return to_onehot_tensor(data_sparse, n_labels)
     
+    
+    # TODO: complete this
 #     def _random_crop_and_flip(img, rois=None):
 #         H, W = img.shape[1], img.shape[2]
 #         if random.random() < 0.3:
@@ -265,7 +278,6 @@ class TextureDataset(Dataset):
 #         if random.random() < 0.3:
 #             TF.vflip(img)
 #             if rois:
-#                 TF.vflip(rois)
         
         
     def __len__(self):
@@ -276,39 +288,59 @@ class TextureDataset(Dataset):
         Q: are we missing the target face and other details? 
         A: Recall that we only warp cloth, everything else from the texture is copied over (post-process)
         
-        Returns:
-            (augmented) input texture with desired cloth
-            rois of (augmented) input texture
-            cloth segmentation at the desired pose
-            input texture with desired cloth (for training)
+        :returns:
+            For training, all returns are from the SAME image:
+                AUGMENTED input texture with desired cloth
+                rois of AUGMENTED input texture
+                cloth segmentation at the desired pose
+                target texture with desired cloth
+            
+            For inference:
+                input texture
+                and its rois of the first image
+                cloth segmentation of the second image
         """
         input_texture_file = self.texture_files[index]
         input_texture_img = Image.open(os.path.join(self.texture_dir, input_texture_file))
         
-        # replace .png with .npz
+        # get name without extension
         file_name = input_texture_file[:-len(self.img_ext)]
-        input_cloth_file = file_name + self.cloth_ext
-        input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19)
+        
+        #TODO: We should remove None rois preemptively
+        # otherwise I can only think of awkward way to handle it inside __getitem__
+        # for now I'm passing 0
+        rois = self.rois_df.loc[file_name].values
+        input_rois_tensor = torch.from_numpy(rois)
+        
+        if not self.inference_mode:
+            input_cloth_file = file_name + self.cloth_ext
+            input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19)
+        else:
+            if self.warped_cloth_dir is None:
+                raise Exception('if inference_mode is True, warped_cloth_dir should be specified instead')
+            input_cloth_file = random.choice(self.warped_cloth_files)
+            input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.warped_cloth_dir, input_cloth_file), n_labels=19)
         
         # refer to swapnet p.9
-        if self.input_transform:
+        if self.input_transform and not self.inference_mode:
+            # TODO: missing rois transform
             input_texture_tensor = to_tensor(self.input_transform(input_texture_img))
         else:
             input_texture_tensor = to_tensor(input_texture_img)
         
-        output_texture_tensor = to_tensor(input_texture_img)
-            
-        try:
-            rois = self.rois_df.loc[file_name].values
-            input_rois_tensor = torch.from_numpy(rois)
-        except KeyError:
-            rois = torch.Tensor([[]])
+        if not self.inference_mode:
+            output_texture_tensor = to_tensor(input_texture_img)
             
         
         if self.crop_bounds:
             input_texture_tensor = crop(input_texture_tensor, self.crop_bounds)
             input_rois_tensor = crop_rois(input_rois_tensor, self.crop_bounds)
             input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
+            if not self.inference_mode:
+                output_texture_tensor = crop(output_texture_tensor, self.crop_bounds)
         
-        return input_texture_tensor, input_rois_tensor, input_cloth_tensor, output_texture_tensor
+        if not self.inference_mode:
+            return input_texture_tensor, input_rois_tensor, input_cloth_tensor, output_texture_tensor
+        else:
+            return input_texture_tensor, input_rois_tensor, input_cloth_tensor,
         
