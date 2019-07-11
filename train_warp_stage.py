@@ -21,7 +21,7 @@ from src.datasets import WarpDataset
 from src.loss import PerPixelCrossEntropyLoss
 from src.nets import Discriminator, weights_init_normal
 from src.warp_module import WarpModule
-from utils.colorize_channels import colorize_channels
+from utils.decode_labels import decode_cloth_labels
 
 parser = argparse.ArgumentParser(
     formatter_class=argparse.ArgumentDefaultsHelpFormatter,
@@ -243,7 +243,7 @@ if args.val_dir:
     )
 
 
-def sample_images(epoch, batches_done):
+def sample_images(epoch, batches_done, num_images=5):
     """Saves a generated sample from the validation set"""
     bodys, inputs, targets = next(iter(val_dataloader))
     if cuda:
@@ -251,21 +251,28 @@ def sample_images(epoch, batches_done):
         inputs = inputs.cuda()
         targets = targets.cuda()
     fakes = generator(bodys, inputs)
-#     img_sample = torch.cat((bodys.data, colorize_channels(inputs.data.cpu(), args.cloth_channels), 
-#                             colorize_channels(fakes.data.cpu(), args.cloth_channels), 
-#                             colorize_channels(targets.data.cpu(), args.cloth_channels)), -2)
-#     save_image(
-#         img_sample,
-#         os.path.join(OUT_DIR, f"{epoch:02d}_{batches_done:05d}.png"),
-#         nrow=args.batch_size,
-#         normalize=True,
-#     )
-    
-    validation_out_dir = os.path.join(OUT_DIR, "validation")
-    if not os.path.exists(validation_out_dir):
-        os.makedirs(validation_out_dir)
-    torch.save({'input_body': bodys.data, 'input_cloth': inputs.data, 'output_cloth': fakes.data, 'target_cloth': targets.data},
-              os.path.join(validation_out_dir, f"{epoch:02d}_{batches_done:05d}.pt"),)
+
+    # scale and decode cloth labels
+    rgb_bodys = ((bodys - bodys.min()) * 255 / (bodys.max() - bodys.min())).byte().cpu()[:num_images]
+    decoded_inputs = decode_cloth_labels(inputs.detach().cpu())[:num_images]
+    decoded_fakes = decode_cloth_labels(fakes.detach().cpu())[:num_images]
+    decoded_targets = decode_cloth_labels(targets.detach().cpu())[:num_images]
+
+    img_sample = torch.cat((rgb_bodys, decoded_inputs, decoded_fakes, decoded_targets), dim=-2)
+
+    save_image(
+        img_sample,
+        os.path.join(OUT_DIR, f"{epoch:02d}_{batches_done:05d}.png"),
+        nrow=args.batch_size,
+        normalize=True,
+        scale_each=True # normalize each bodys/inputs/fakes/targets separately
+    )
+
+    # validation_out_dir = os.path.join(OUT_DIR, "validation")
+    # if not os.path.exists(validation_out_dir):
+    #     os.makedirs(validation_out_dir)
+    # torch.save({'input_body': bodys.data, 'input_cloth': inputs.data, 'output_cloth': fakes.data, 'target_cloth': targets.data},
+    #           os.path.join(validation_out_dir, f"{epoch:02d}_{batches_done:05d}.pt"),)
 
 
 ###############################
