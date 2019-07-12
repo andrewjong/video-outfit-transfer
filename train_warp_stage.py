@@ -160,7 +160,7 @@ with open(os.path.join(MODEL_DIR, "logs", "train_log.csv"), "w") as f:
 
 # Loss functions
 criterion_GAN = torch.nn.BCELoss()
-criterion_pixelwise = PerPixelCrossEntropyLoss()
+criterion_labels = torch.nn.CrossEntropyLoss()
 
 # Initialize generator and discriminator
 generator = WarpModule(cloth_channels=args.cloth_channels, dropout=args.dropout)
@@ -171,7 +171,7 @@ if cuda:
     generator = generator.cuda()
     discriminator = discriminator.cuda()
     criterion_GAN.cuda()
-    criterion_pixelwise.cuda()
+    criterion_labels.cuda()
 
 # only load weights if retraining
 if args.epoch != 0:
@@ -312,7 +312,7 @@ for epoch in tqdm(
         pred_fake = discriminator(gen_fakes, bodys)
         loss_adv = criterion_GAN(pred_fake, valid_labels)
         # Pixel-wise loss
-        loss_pixel = criterion_pixelwise(gen_fakes, targets)
+        loss_pixel = criterion_labels(gen_fakes, torch.argmax(targets, dim=1))
 
         # Total loss
         loss_warp = loss_pixel + args.adversarial_weight * loss_adv
