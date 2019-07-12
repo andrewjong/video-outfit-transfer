@@ -236,6 +236,7 @@ if args.val_dir:
         body_seg_dir=args.body_dir,
         cloth_seg_dir=args.val_dir,
         crop_bounds=config.CROP_BOUNDS,
+        input_transform=input_transform,
         inference_mode=False,
     )
     val_dataloader = torch.utils.data.DataLoader(

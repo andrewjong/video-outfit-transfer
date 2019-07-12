@@ -1,4 +1,6 @@
+.directory
 .vscode
+checkpoints
 lib
 reference
 .idea
