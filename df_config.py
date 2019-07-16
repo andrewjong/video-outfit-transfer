@@ -1,0 +1,16 @@
+from os.path import join
+
+ROOT = "data/deep_fashion_all"
+CROP_BOUNDS = None
+cloth_channels = 19
+
+TEXTURE = join(ROOT, "texture_128")
+ROIS = join(ROOT, "rois.csv")
+CLOTH_SEG = join(ROOT, "clothing_128")
+BODY_SEG = join(ROOT, "body_128")
+# BODY_SEG_MEAN = [0.0265, 0.041, 0.034]
+# BODY_SEG_STD = [0.110, 0.137, 0.127]
+
+BODY_SEG_MEAN = [0.06484050184440401, 0.06718090599394388, 0.07127327572275195]
+BODY_SEG_STD = [0.20880754590386696, 0.20012519201951437, 0.23498672043315588]
+
