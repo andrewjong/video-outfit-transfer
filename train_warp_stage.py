@@ -296,8 +296,8 @@ for epoch in tqdm(
             targets = targets.cuda()
 
         # Adversarial ground truths
-        valid_labels = torch.ones(targets.shape[0]).type(Tensor)
-        fake_labels = torch.zeros(targets.shape[0]).type(Tensor)
+        valid_labels = torch.ones(targets.shape[0], 1).type(Tensor)
+        fake_labels = torch.zeros(targets.shape[0], 1).type(Tensor)
         # switch loss for better gradient signal??
 #         valid_labels = torch.zeros(targets.shape[0]).type(Tensor)
 #         fake_labels = torch.ones(targets.shape[0]).type(Tensor)
@@ -331,10 +331,12 @@ for epoch in tqdm(
         # Real loss
         pred_real = discriminator(targets, bodys)
         loss_real = criterion_GAN(pred_real, valid_labels)
+        print(pred_real.shape, valid_labels.shape)
 
         # Fake loss
         pred_fake = discriminator(gen_fakes.detach(), bodys)
         loss_fake = criterion_GAN(pred_fake, fake_labels)
+        print(pred_fake.shape, fake_labels.shape)
 
         # Total loss
         loss_D = 0.5 * (loss_real + loss_fake)
