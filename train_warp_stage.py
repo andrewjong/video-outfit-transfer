@@ -231,6 +231,7 @@ dataloader = torch.utils.data.DataLoader(
     warp_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
 )
 
+# if validating, then inference mode is False. if testing new inputs then True.
 if args.val_dir:
     val_dataset = WarpDataset(
         body_seg_dir=args.body_dir,

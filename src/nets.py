@@ -16,6 +16,9 @@ def weights_init_normal(m):
         torch.nn.init.constant_(m.bias.data, 0.0)
 
 
+samesize_conv2d = lambda in_size, out_size: nn.Conv2d(in_size, out_size, 3, 1, 1)
+halfsize_conv2d = lambda in_size, outsize: nn.Conv2d(in_size, out_size, 4, 2, 1)
+
 ##############################
 #           U-NET
 ##############################
@@ -138,7 +141,8 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_feat, out_feat, bn=True):
             block = [
-                nn.Conv2d(in_feat, out_feat, 3, 2, 1),
+#                 nn.Conv2d(in_feat, out_feat, 3, 2, 1),
+                nn.Conv2d(in_feat, out_feat, 4, 2, 1),
                 nn.LeakyReLU(0.2, inplace=True),
                 nn.Dropout2d(0.25),
             ]
@@ -157,7 +161,9 @@ class Discriminator(nn.Module):
         ds_size = img_size // 2 ** 4
         self.adv_layer = nn.Sequential(
             nn.Linear(128 * ds_size ** 2, 1),  # a linear layer
-            nn.Sigmoid(),  # sigmoid to change to probabilities
+            
+        # not needed for wgan
+#             nn.Sigmoid(),  # sigmoid to change to probabilities
         )
 
     def forward(self, img_real, img_condition):
