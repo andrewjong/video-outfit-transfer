@@ -45,6 +45,7 @@ def crop_rois(rois: np.ndarray, crop_bounds):
         rois = rois.T
     return rois
 
+
 to_tensor = torchvision.transforms.ToTensor()
 
 
@@ -53,10 +54,13 @@ def random_transform_functional(*args):
 
 
 # this parameter config is not from the paper.
-swapnet_random_transform = random_transform_functional(transforms.RandomAffine(degrees=20, translate=(0.4, 0.4), scale=(0.75, 1.25), shear=10),
-                                            transforms.RandomHorizontalFlip(0.3),
-                                            transforms.RandomVerticalFlip(0.3),
-                                           )
+swapnet_random_transform = random_transform_functional(
+    transforms.RandomAffine(
+        degrees=20, translate=(0.4, 0.4), scale=(0.75, 1.25), shear=10
+    ),
+    transforms.RandomHorizontalFlip(0.3),
+    transforms.RandomVerticalFlip(0.3),
+)
 
 
 def to_onehot_tensor(sp_matrix, n_labels):
@@ -70,10 +74,11 @@ def to_onehot_tensor(sp_matrix, n_labels):
     sp_matrix = sp_matrix.tocoo()
     indices = np.vstack((sp_matrix.data, sp_matrix.row, sp_matrix.col))
     indices = torch.LongTensor(indices)
-    values = torch.Tensor([1.0]*sp_matrix.nnz)
+    values = torch.Tensor([1.0] * sp_matrix.nnz)
     shape = (n_labels,) + sp_matrix.shape
     return torch.sparse.FloatTensor(indices, values, torch.Size(shape)).to_dense()
-    
+
+
 class WarpDataset(Dataset):
     def __init__(
         self,
@@ -84,8 +89,8 @@ class WarpDataset(Dataset):
         input_transform=None,
         body_means=None,
         body_stds=None,
-        body_ext: str='.jpg',
-        cloth_ext: str='.npz',
+        body_ext: str = ".jpg",
+        cloth_ext: str = ".npz",
         inference_mode=False,
     ):
         """
@@ -100,36 +105,35 @@ class WarpDataset(Dataset):
         if random_seed:
             random.seed(random_seed)
         self.random_seed = random_seed
-        
+
         self.cloth_ext = cloth_ext
         self.body_ext = body_ext
-        
+
         self.cloth_seg_dir = cloth_seg_dir
         os.chdir(self.cloth_seg_dir)
-        self.cloth_seg_files = glob(('**/*'+self.cloth_ext), recursive=True)
-        os.chdir('../'*(len(self.cloth_seg_dir.split('/'))))
-        
+        self.cloth_seg_files = glob(("**/*" + self.cloth_ext), recursive=True)
+        os.chdir("../" * (len(self.cloth_seg_dir.split("/"))))
+
         self.body_seg_dir = body_seg_dir
 
         self.crop_bounds = crop_bounds
 
         self.input_transform = input_transform
-        
+
         # transforms for RGB images
         body_transform = [transforms.ToTensor()]
         if body_means and body_stds:
             body_transform += [transforms.Normalize(body_means, body_stds)]
         self.body_transform = transforms.Compose(body_transform)
-            
+
         self.inference_mode = inference_mode
-        
+
     def _change_extension(self, fname, ext1, ext2):
         """
         :return: file name with new extension
         """
-        return fname[:-len(ext1)] + ext2
-    
-    
+        return fname[: -len(ext1)] + ext2
+
     def _decompress_cloth_segment(self, fname, n_labels) -> Tensor:
         """
         load cloth segmentation sparse matrix npz file
@@ -137,8 +141,7 @@ class WarpDataset(Dataset):
         """
         data_sparse = load_npz(fname)
         return to_onehot_tensor(data_sparse, n_labels)
-        
-    
+
     def _perchannel_transform(self, input_cloth_np, transform_function) -> Tensor:
         """
         Randomly transform each of n_channels of input data.
@@ -148,12 +151,15 @@ class WarpDataset(Dataset):
         :param transform_function: any torchvision transforms class
         :return: transformed pt tensor
         """
-        tform_input_cloth_np = np.zeros(shape=input_cloth_np.shape, dtype=input_cloth_np.dtype)
+        tform_input_cloth_np = np.zeros(
+            shape=input_cloth_np.shape, dtype=input_cloth_np.dtype
+        )
         n_channels = input_cloth_np.shape[0]
         for i in range(n_channels):
-            tform_input_cloth_np[i] = np.array(transform_function(Image.fromarray(input_cloth_np[i])))
+            tform_input_cloth_np[i] = np.array(
+                transform_function(Image.fromarray(input_cloth_np[i]))
+            )
         return torch.from_numpy(tform_input_cloth_np)
-        
 
     def __len__(self):
         """
@@ -161,7 +167,6 @@ class WarpDataset(Dataset):
         :return: length of the image
         """
         return len(self.cloth_seg_files)
-
 
     def __getitem__(self, index):
         """
@@ -172,34 +177,39 @@ class WarpDataset(Dataset):
             of 2 different images
         """
 
-
         # the input cloth segmentation
         input_cloth_file = self.cloth_seg_files[index]
-        input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19)
-        
+        input_cloth_tensor = self._decompress_cloth_segment(
+            os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19
+        )
+
         # the target cloth segmentation for training
         if not self.inference_mode:
             target_cloth_file = input_cloth_file
-            target_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, target_cloth_file), n_labels=19)
+            target_cloth_tensor = self._decompress_cloth_segment(
+                os.path.join(self.cloth_seg_dir, target_cloth_file), n_labels=19
+            )
 
         # the body segmentation that corresponds to the target cloth segmentation
         if not self.inference_mode:
             # get the same target image's body segmentation
-            input_body_file = self._change_extension(target_cloth_file, self.cloth_ext, self.body_ext)
+            input_body_file = self._change_extension(
+                target_cloth_file, self.cloth_ext, self.body_ext
+            )
         else:
             input_body_file = random.choice(self.cloth_seg_files)
-            input_body_file = self._change_extension(input_body_file, self.cloth_ext, self.body_ext)
-    
+            input_body_file = self._change_extension(
+                input_body_file, self.cloth_ext, self.body_ext
+            )
+
         input_body_img = Image.open(os.path.join(self.body_seg_dir, input_body_file))
         input_body_tensor = self.body_transform(input_body_img)
-        
-#         print(input_body_file, input_cloth_file, target_cloth_file)
+
+        #         print(input_body_file, input_cloth_file, target_cloth_file)
 
         # apply the trainsformation for input cloth segmentation for training
         if self.input_transform and not self.inference_mode:
-            input_cloth_np = input_cloth_tensor.numpy()
-            input_cloth_tensor = self._perchannel_transform(input_cloth_np, self.input_transform)
-
+            transformed_cloth_tensor = self.input_transform(input_cloth_tensor)
 
         # crop to the proper image size
         if self.crop_bounds:
@@ -211,78 +221,122 @@ class WarpDataset(Dataset):
         if not self.inference_mode:
             return input_body_tensor, input_cloth_tensor, target_cloth_tensor
         else:
-            return input_body_tensor, input_cloth_tensor,
+            return input_body_tensor, input_cloth_tensor
 
-    
-    
+
+def random_image_roi_flip(img, rois, vp=0.5, hp=0.5):
+    """
+    Randomly
+    Args:
+        img: a PIL image
+        rois:
+        vp:
+        hp:
+
+    Returns: flipped PIL image, flipped rois
+
+    """
+    W, H = img.size
+
+    if random.random() < vp:
+        img = TF.vflip(img)
+        center = int(H / 2)
+        flip_rois_(rois, 0, center)
+
+    if random.random() < hp:
+        img = TF.hflip(img)
+        center = int(W / 2)
+        flip_rois_(rois, 1, center)
+
+    return img, rois
+
+
+def flip_rois_(rois, axis, center):
+    """
+    Flips rois in place, along the given axis, at the given center value
+
+    Args:
+        rois: roi tensor
+        axis: 0 for a vertical flip, 1 for a horizontal flip
+        center: a positive integer, where to flip
+
+    E.g. if axis=1
+    ------------       ------------
+    |    |     |       |    |     |
+    | +  |     |  =>   |    |   + |
+    |    |     |       |    |     |
+    |    |     |       |    |     |
+    ------------       ------------
+
+    Returns:
+
+    """
+    if axis == 0:  # vertical flip, flip y values
+        min_idx, max_idx = -3, -1  # use negative indexing in case of batch in 1st dim
+    elif axis == 1:  # horizontal flip, flip x values
+        min_idx, max_idx = -4, -2
+    else:
+        raise ValueError(f"dim argument must be 0 or 1, received {axis}")
+
+    # put side by side
+    values = torch.stack((rois[:, min_idx], rois[:, max_idx]))
+    # compute the flip
+    delta = center - values
+    flipped = center + delta
+    # max and min are now swapped because we flipped
+    max, min = torch.chunk(flipped, 2)
+    # put them back in
+    rois[:, min_idx], rois[:, max_idx] = min, max
+
+
 class TextureDataset(Dataset):
-    def __init__(self, 
-                 texture_dir: str,
-                 rois_db: str,
-                 cloth_seg_dir: str,
-                 warped_cloth_dir: str=None,
-                 random_seed: int = None,
-                 input_transform =None, # should default to swapnet transform?
-                 crop_bounds = None,
-                 cloth_ext: str = '.npz',
-                 img_ext: str = '.jpg',
-                 inference_mode=False,
-                ):
+    def __init__(
+        self,
+        texture_dir: str,
+        rois_db: str,
+        cloth_seg_dir: str,
+        random_seed: int = None,
+        p_vflip=0.5,
+        p_hflip=0.5,
+        crop_bounds=None,
+        cloth_ext: str = ".npz",
+        img_ext: str = ".jpg",
+        inference_mode=False,
+    ):
+        self.p_vflip = p_vflip
+        self.p_hflip = p_hflip
         if random_seed:
             random.seed(random_seed)
         super().__init__()
         self.texture_dir = texture_dir
         self.cloth_seg_dir = cloth_seg_dir
-        self.warped_cloth_dir = warped_cloth_dir
         self.img_ext = img_ext
         self.cloth_ext = cloth_ext
-        
+
         # get all texture files
         os.chdir(self.texture_dir)
-        self.texture_files = glob(os.path.join('**/*'+self.img_ext), recursive=True)
-        os.chdir('../'*(len(self.texture_dir.split('/'))))
-        
-        # for inference, get all warp stage cloth segmentation output files
-        if self.warped_cloth_dir:
-            os.chdir(self.warped_cloth_dir)
-            self.warped_cloth_files = glob(os.path.join('**/*'+self.cloth_ext), recursive=True)
-            os.chdir('../'*(len(self.warped_cloth_dir.split('/'))))
-        
+        self.texture_files = glob(os.path.join("**/*" + self.img_ext), recursive=True)
+        os.chdir("../" * (len(self.texture_dir.split("/"))))
+
         self.rois_df = pd.read_csv(rois_db, index_col=0)
-        
+
         self.rois_df = self.rois_df.replace("None", 0).astype(np.float32)
-        
-        self.input_transform = input_transform
+
         self.crop_bounds = crop_bounds
         self.inference_mode = inference_mode
-        
-        
+
     def _decompress_cloth_segment(self, fname, n_labels) -> torch.Tensor:
         """
         load cloth segmentation from sparse matrix npz file
         :return: sparse tensor of size(H,W,n_labels)
         """
         data_sparse = load_npz(fname)
-        
+
         return to_onehot_tensor(data_sparse, n_labels)
-    
-    
-    # TODO: complete this
-#     def _random_crop_and_flip(img, rois=None):
-#         H, W = img.shape[1], img.shape[2]
-#         if random.random() < 0.3:
-#             TF.hflip(img)
-#             if rois:
-                
-            
-#         if random.random() < 0.3:
-#             TF.vflip(img)
-#             if rois:
-        
-        
+
     def __len__(self):
         return len(self.texture_files)
-    
+
     def __getitem__(self, index: int):
         """
         Q: are we missing the target face and other details? 
@@ -301,46 +355,47 @@ class TextureDataset(Dataset):
                 cloth segmentation of the second image
         """
         input_texture_file = self.texture_files[index]
-        input_texture_img = Image.open(os.path.join(self.texture_dir, input_texture_file))
-        
+        input_texture_img = Image.open(
+            os.path.join(self.texture_dir, input_texture_file)
+        )
+
         # get name without extension
-        file_name = input_texture_file[:-len(self.img_ext)]
-        
-        #TODO: We should remove None rois preemptively
+        file_name = input_texture_file[: -len(self.img_ext)]
+
+        # TODO: We should remove None rois preemptively
         # otherwise I can only think of awkward way to handle it inside __getitem__
         # for now I'm passing 0
         rois = self.rois_df.loc[file_name].values
         input_rois_tensor = torch.from_numpy(rois)
-        
+
+        input_cloth_file = file_name + self.cloth_ext
+        input_cloth_tensor = self._decompress_cloth_segment(
+            os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19
+        )
+
         if not self.inference_mode:
-            input_cloth_file = file_name + self.cloth_ext
-            input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.cloth_seg_dir, input_cloth_file), n_labels=19)
-        else:
-            if self.warped_cloth_dir is None:
-                raise Exception('if inference_mode is True, warped_cloth_dir should be specified instead')
-            input_cloth_file = random.choice(self.warped_cloth_files)
-            input_cloth_tensor = self._decompress_cloth_segment(os.path.join(self.warped_cloth_dir, input_cloth_file), n_labels=19)
-        
-        # refer to swapnet p.9
-        if self.input_transform and not self.inference_mode:
-            # TODO: missing rois transform
-            input_texture_tensor = to_tensor(self.input_transform(input_texture_img))
-        else:
-            input_texture_tensor = to_tensor(input_texture_img)
-        
-        if not self.inference_mode:
-            output_texture_tensor = to_tensor(input_texture_img)
-            
-        
+            # also need an unmodified target tensor during training
+            target_texture_tensor = to_tensor(input_texture_img)
+
+            # during training, do a random flip
+            input_texture_img, input_rois_tensor = random_image_roi_flip(
+                input_texture_img, input_rois_tensor, self.p_vflip, self.p_hflip
+            )
+        input_texture_tensor = to_tensor(input_texture_img)
+
         if self.crop_bounds:
             input_texture_tensor = crop(input_texture_tensor, self.crop_bounds)
             input_rois_tensor = crop_rois(input_rois_tensor, self.crop_bounds)
             input_cloth_tensor = crop(input_cloth_tensor, self.crop_bounds)
             if not self.inference_mode:
-                output_texture_tensor = crop(output_texture_tensor, self.crop_bounds)
-        
+                target_texture_tensor = crop(target_texture_tensor, self.crop_bounds)
+
         if not self.inference_mode:
-            return input_texture_tensor, input_rois_tensor, input_cloth_tensor, output_texture_tensor
+            return (
+                input_texture_tensor,
+                input_rois_tensor,
+                input_cloth_tensor,
+                target_texture_tensor,
+            )
         else:
-            return input_texture_tensor, input_rois_tensor, input_cloth_tensor,
-        
+            return input_texture_tensor, input_rois_tensor, input_cloth_tensor

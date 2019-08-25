@@ -1,4 +1,5 @@
 import sys
+import code
 
 
 sys.path.append("../lib")
@@ -21,4 +22,4 @@ first_batch = next(iter(dataloader))
 
 tex_img_and_roi = first_batch[:2]
 
-
+code.interact(local=locals())

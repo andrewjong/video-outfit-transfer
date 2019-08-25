@@ -6,6 +6,7 @@ from model.roi_layers import ROIAlign
 from torch import nn
 
 from src.nets import UNetDown, UNetUp
+import code
 
 NUM_ROI = 6
 
@@ -41,10 +42,15 @@ class TextureModule(nn.Module):
         )
 
     def forward(self, input_tex, rois, cloth):
-        # view rois as -1 5 because they have an extra "batch" dimension. but
-        # roi_align api just expects a single rowsxcoords tensor
-        rois = rois.view(-1, 5)
-        rois[:, 0] = rois[:, 0] - rois[0, 0]
+        # append batch to rois
+        # get the batch indices
+        bidx = torch.arange(rois.shape[0]).unsqueeze_(-1)
+        # expand out and reshape to to batchx1 dimension
+        bidx = bidx.expand(rois.shape[0], rois.shape[1]).reshape(-1).unsqueeze_(-1)
+        bidx = bidx.to(rois.device).type(rois.dtype)
+        rois = rois.view(-1, rois.shape[-1])
+        rois = torch.cat((bidx, rois), dim=1)
+        # do roi alignment
         pooled_rois = self.roi_align(input_tex, rois)
         # reshape the pooled rois such that pool output goes in the channels instead of
         # batch size
@@ -59,6 +65,7 @@ class TextureModule(nn.Module):
         upsampled_tex = nn.functional.interpolate(
             encoded_tex, scale_factor=scale_factor
         )
+        code.interact(local=locals())
 
         # concat on the channel dimension
         tex_with_cloth = torch.cat((upsampled_tex, cloth), 1)
