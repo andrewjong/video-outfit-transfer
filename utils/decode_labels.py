@@ -42,7 +42,7 @@ def decode_cloth_labels(pt_tensor, num_images=-1, num_classes=n_classes):
     # change to H x W x C order
     tf_order = pt_tensor.permute(0, 2, 3, 1)
     argmax = tf_order.argmax(dim=-1, keepdim=True)
-    mask = argmax.numpy()
+    mask = argmax.cpu().numpy()
 
     n, h, w, c = mask.shape
     if num_images < 0:

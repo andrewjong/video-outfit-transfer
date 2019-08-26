@@ -3,11 +3,16 @@ Code modified from PyTorch-GAN:
 https://github.com/eriklindernoren/PyTorch-GAN/
 """
 import argparse
+import code
 import json
 import os
 from glob import glob
 from pprint import pprint
 from time import strftime, gmtime
+
+from torchvision.transforms.functional import normalize
+
+from utils.decode_labels import decode_cloth_labels
 
 import torch
 
@@ -247,13 +252,13 @@ dataloader = torch.utils.data.DataLoader(
     texture_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
 )
 
-if args.val_dir:
-    val_dataset = TextureDataset(
-        args.texture_dir, args.rois_db, args.val_dir
-    )
-    val_dataloader = torch.utils.data.DataLoader(
-        val_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
-    )
+val_dir = args.val_dir if args.val_dir else args.clothing_dir
+val_dataset = TextureDataset(
+    args.texture_dir, args.rois_db, val_dir, inference_mode=True
+)
+val_dataloader = torch.utils.data.DataLoader(
+    val_dataset, batch_size=args.batch_size, num_workers=args.n_cpu
+)
 
 
 def sample_images(epoch, batches_done):
@@ -264,12 +269,15 @@ def sample_images(epoch, batches_done):
         rois = rois.cuda()
         clothing = clothing.cuda()
     fakes = generator(textures, rois, clothing)
-    img_sample = torch.cat((clothing.data, textures.data, fakes.data), -2)
+    decoded_cloth = decode_cloth_labels(clothing).float()
+    squashed_cloth = ((decoded_cloth - decoded_cloth.min()) * 1 / (decoded_cloth.max() - decoded_cloth.min()))
+    img_sample = torch.cat((textures.cpu().data, squashed_cloth.data, fakes.cpu().data), -2)
+    # code.interact(local=locals())
     save_image(
         img_sample,
         os.path.join(OUT_DIR, f"{epoch:02d}_{batches_done:05d}.png"),
         nrow=args.batch_size,
-        normalize=True,
+        # normalize=True,
     )
 
 
@@ -314,11 +322,12 @@ for epoch in tqdm(
         #  Train Generators
         # ------------------
 
+        # forward pass
         optimizer_G.zero_grad()
+        gen_fakes = generator(textures, rois, cloths)
 
         # GAN loss
-        gen_fakes = generator(textures, rois, cloths)
-        pred_fake = discriminator(gen_fakes, textures)
+        pred_fake = discriminator(gen_fakes, textures).view(-1)
         loss_adv = criterion_GAN(pred_fake, valid_labels)
 
         loss_l1 = criterion_l1(gen_fakes, targets)
@@ -339,7 +348,7 @@ for epoch in tqdm(
         optimizer_D.zero_grad()
 
         # Real loss
-        pred_real = discriminator(gen_fakes, textures)
+        pred_real = discriminator(gen_fakes, textures).view(-1)
         loss_real = criterion_GAN(pred_real, valid_labels)
 
         # Fake loss
@@ -383,7 +392,7 @@ for epoch in tqdm(
         #  Sample images and save model
         # ------------------------------
         # If at sample interval save image
-        if args.val_dir and batches_done % args.sample_interval == 0:
+        if val_dir and batches_done % args.sample_interval == 0:
             sample_images(epoch, batches_done)
 
         if (

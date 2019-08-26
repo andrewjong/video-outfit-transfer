@@ -163,7 +163,7 @@ class Discriminator(nn.Module):
             nn.Linear(128 * ds_size ** 2, 1),  # a linear layer
             
         # not needed for wgan
-#             nn.Sigmoid(),  # sigmoid to change to probabilities
+            nn.Sigmoid(),  # sigmoid to change to probabilities
         )
 
     def forward(self, img_real, img_condition):

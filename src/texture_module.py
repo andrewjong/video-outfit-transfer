@@ -8,21 +8,21 @@ from torch import nn
 from src.nets import UNetDown, UNetUp
 import code
 
-NUM_ROI = 6
+NUM_ROI = 12
 
 
 class TextureModule(nn.Module):
-    def __init__(self, texture_channels=3, dropout=0.5):
+    def __init__(self, texture_channels=3, cloth_channels=19, dropout=0.5):
         super(TextureModule, self).__init__()
         self.roi_align = ROIAlign(
             output_size=(128, 128), spatial_scale=1, sampling_ratio=1
         )
 
-        channels = texture_channels * NUM_ROI
+        channels = texture_channels * NUM_ROI # +1 for background
         self.encode = UNetDown(channels, channels)
 
         # UNET
-        self.down_1 = UNetDown(channels + texture_channels, 64, normalize=False)
+        self.down_1 = UNetDown(channels + cloth_channels, 64, normalize=False)
         self.down_2 = UNetDown(64, 128)
         self.down_3 = UNetDown(128, 256)
         self.down_4 = UNetDown(256, 512, dropout=dropout)
@@ -65,7 +65,6 @@ class TextureModule(nn.Module):
         upsampled_tex = nn.functional.interpolate(
             encoded_tex, scale_factor=scale_factor
         )
-        code.interact(local=locals())
 
         # concat on the channel dimension
         tex_with_cloth = torch.cat((upsampled_tex, cloth), 1)
