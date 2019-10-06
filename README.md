@@ -1,3 +1,5 @@
+# This repository is deprecated in favor of my [rehauled version](https://github.com/andrewjong/SwapNet).
+
 # Video Outfit Transfer
 This research project aims to extend the [SwapNet](http://www.eye.gatech.edu/swapnet/paper.pdf) outfit transfer work, by extending realistic outfit transfer to video. Video presents unique challenges related to temporal coherence. This was my project for CS 256: Topics in AI, and is continued as research under Dr. Teng-Sheng Moh.
 
