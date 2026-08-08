@@ -138,7 +138,7 @@ class Discriminator(nn.Module):
 
         def discriminator_block(in_feat, out_feat, bn=True):
             block = [
-                nn.Conv2d(in_feat, out_feat, 3, 2, 1),
+                nn.Conv2d(in_feat, out_feat, 4, 2, 1),
                 nn.LeakyReLU(0.2, inplace=True),
                 nn.Dropout2d(0.25),
             ]
